@@ -1466,15 +1466,22 @@
 ═══════════════════════════════════════ -->
 <div class="overlay" id="modal-venta">
   <div class="modal">
-    <div class="modal-title">
+    <div class="modal-title" id="modal-venta-title">
       Registrar venta
       <button class="modal-close" onclick="closeModal('modal-venta')"><i class="ti ti-x"></i></button>
     </div>
+    <input type="hidden" id="v-edit-id">
     <div class="form-row">
       <label class="form-label">Producto</label>
       <select class="form-select" id="v-producto">
         <option value="">— Seleccioná un producto —</option>
       </select>
+    </div>
+    <div class="form-grid-2">
+      <div class="form-row">
+        <label class="form-label">Talle</label>
+        <input type="text" class="form-input" id="v-talle-edit" placeholder="S, M, L, XL..." style="display:none;">
+      </div>
     </div>
     <div class="form-grid-2">
       <div class="form-row">
@@ -1501,7 +1508,7 @@
     </div>
     <div id="v-stock-info" class="hint"></div>
     <div class="form-actions">
-      <button class="btn" onclick="closeModal('modal-venta')">Cancelar</button>
+      <button class="btn" onclick="closeModal('modal-venta'); limpiarModalVenta();">Cancelar</button>
       <button class="btn primary" onclick="guardarVenta()"><i class="ti ti-shopping-cart"></i> Registrar venta</button>
     </div>
   </div>
@@ -1732,7 +1739,12 @@ function resetTallesContainer() {
 // MODAL HANDLING
 // ═══════════════════════════
 function openModal(id) {
-  if (id === 'modal-venta') populateVentaSelect();
+  if (id === 'modal-venta') {
+    // Only reset if not in edit mode (editarVenta sets things up itself)
+    if (!document.getElementById('v-edit-id').value) {
+      populateVentaSelect();
+    }
+  }
   if (id === 'modal-importexport') refreshExport();
   document.getElementById(id).classList.add('open');
   if (id === 'modal-compra') {
@@ -1858,42 +1870,126 @@ function populateVentaSelect() {
   };
 }
 
+
+// ═══════════════════════════
+// EDITAR VENTA
+// ═══════════════════════════
+function editarVenta(id) {
+  const v = DATA.ventas.find(x => String(x.id) === String(id));
+  if (!v) return;
+
+  // Set edit mode
+  document.getElementById('v-edit-id').value = v.id;
+  document.getElementById('modal-venta-title').innerHTML =
+    'Editar venta <button class="modal-close" onclick="closeModal('modal-venta'); limpiarModalVenta();"><i class="ti ti-x"></i></button>';
+
+  // Populate form — show talle field for manual correction
+  const talleWrap = document.getElementById('v-talle-edit');
+  talleWrap.style.display = 'block';
+  talleWrap.value = v.talle;
+  talleWrap.parentElement.querySelector('.form-label').textContent = 'Talle (editable)';
+
+  // Hide product selector, show current product as read-only label
+  const provRow = document.getElementById('v-producto').parentElement;
+  provRow.innerHTML = `
+    <label class="form-label">Producto</label>
+    <div style="padding:10px 14px; background:var(--surface2); border:1px solid var(--border2); border-radius:var(--radius-sm); font-size:13px; color:var(--text2);">
+      ${v.producto} <span style="color:var(--text3);">(Talle original: ${v.talle})</span>
+    </div>
+    <input type="hidden" id="v-producto" value="${v.stockKey}">
+  `;
+
+  document.getElementById('v-cantidad').value = v.cantidad;
+  document.getElementById('v-precio').value = v.precioVenta;
+  document.getElementById('v-fecha').value = v.fecha;
+  document.getElementById('v-canal').value = v.canal || 'instagram';
+  document.getElementById('v-stock-info').textContent = `Costo unitario: ${fmtMoney(v.costoUnit)}`;
+
+  openModal('modal-venta');
+}
+
 function guardarVenta() {
-  const stockKey = document.getElementById('v-producto').value;
+  const editId = document.getElementById('v-edit-id').value;
+  const sk = document.getElementById('v-producto').value;
   const cantidad = parseInt(document.getElementById('v-cantidad').value) || 0;
   const precio = parseFloat(document.getElementById('v-precio').value) || 0;
   const fecha = document.getElementById('v-fecha').value || today();
   const canal = document.getElementById('v-canal').value;
 
-  if (!stockKey) { alert('Seleccioná un producto.'); return; }
-  if (cantidad < 1 || precio <= 0) { alert('Completá cantidad y precio de venta.'); return; }
+  if (cantidad < 1 || precio <= 0) { showToast('Completá cantidad y precio.', false); return; }
 
-  const map = buildStockMap();
-  const item = map[stockKey];
-  if (!item) { alert('Producto no encontrado.'); return; }
-  if (cantidad > item.disponible) {
-    alert(`Solo tenés ${item.disponible} unidades disponibles.`);
-    return;
+  if (editId) {
+    // ── EDITAR venta existente ────────────────────────────────────────
+    const idx = DATA.ventas.findIndex(v => String(v.id) === String(editId));
+    if (idx === -1) { showToast('Venta no encontrada.', false); return; }
+    const vOld = DATA.ventas[idx];
+
+    // Talle: usar el campo manual si fue editado
+    const talleEditInput = document.getElementById('v-talle-edit');
+    const nuevoTalle = talleEditInput && talleEditInput.value.trim() ? talleEditInput.value.trim() : vOld.talle;
+    const nuevoSk = vOld.stockKey.split('__')[0] + '__' + nuevoTalle.toUpperCase();
+
+    DATA.ventas[idx] = {
+      ...vOld,
+      stockKey: nuevoSk,
+      talle: nuevoTalle,
+      cantidad,
+      precioVenta: precio,
+      ganancia: (precio - vOld.costoUnit) * cantidad,
+      fecha,
+      canal
+    };
+
+    save();
+    closeModal('modal-venta');
+    limpiarModalVenta();
+    renderAll();
+    showToast('¡Venta actualizada!');
+
+  } else {
+    // ── NUEVA venta ───────────────────────────────────────────────────
+    if (!sk) { showToast('Seleccioná un producto.', false); return; }
+    const map = buildStockMap();
+    const item = map[sk];
+    if (!item) { showToast('Producto no encontrado.', false); return; }
+    if (cantidad > item.disponible) {
+      showToast(`Solo tenés ${item.disponible} unidades disponibles.`, false); return;
+    }
+
+    DATA.ventas.push({
+      id: Date.now() + Math.random(),
+      stockKey: sk,
+      producto: item.producto,
+      talle: item.talle,
+      cantidad,
+      precioVenta: precio,
+      costoUnit: item.costoUnit,
+      ganancia: (precio - item.costoUnit) * cantidad,
+      fecha,
+      canal,
+    });
+
+    save();
+    closeModal('modal-venta');
+    limpiarModalVenta();
+    renderAll();
+    showToast('¡Venta registrada!');
   }
+}
 
-  DATA.ventas.push({
-    id: Date.now(),
-    stockKey,
-    producto: item.producto,
-    talle: item.talle,
-    cantidad,
-    precioVenta: precio,
-    costoUnit: item.costoUnit,
-    ganancia: (precio - item.costoUnit) * cantidad,
-    fecha,
-    canal,
-  });
-
-  save();
-  closeModal('modal-venta');
+function limpiarModalVenta() {
+  document.getElementById('v-edit-id').value = '';
   document.getElementById('v-cantidad').value = 1;
   document.getElementById('v-precio').value = '';
-  renderAll();
+  const talleEdit = document.getElementById('v-talle-edit');
+  if (talleEdit) { talleEdit.value = ''; talleEdit.style.display = 'none'; }
+  const titleEl = document.getElementById('modal-venta-title');
+  if (titleEl) titleEl.innerHTML = 'Registrar venta <button class="modal-close" onclick="closeModal('modal-venta'); limpiarModalVenta();"><i class="ti ti-x"></i></button>';
+  // Restore product selector
+  const provRow = document.getElementById('v-producto')?.parentElement;
+  if (provRow && !provRow.querySelector('select')) {
+    provRow.innerHTML = '<label class="form-label">Producto</label><select class="form-select" id="v-producto"><option value="">— Seleccioná un producto —</option></select>';
+  }
 }
 
 // ═══════════════════════════
@@ -2382,6 +2478,10 @@ function renderVentas() {
           <td>${fmtMoney(v.precioVenta)}</td>
           <td>${fmtMoney(v.costoUnit)}</td>
           <td class="${ganClass} font-bold">${fmtMoney(ganTotal)}</td>
+          <td style="white-space:nowrap;">
+            <button class="btn sm" onclick="editarVenta('${v.id}')" title="Editar"><i class="ti ti-pencil"></i></button>
+            <button class="btn sm danger" onclick="eliminarVenta('${v.id}')" title="Eliminar" style="margin-left:4px;"><i class="ti ti-trash"></i></button>
+          </td>
         </tr>
       `;
     }).join('');
@@ -2399,7 +2499,10 @@ function renderVentas() {
               <div style="font-size:${mode==='grande'?'14':'13'}px; font-weight:600; color:var(--text);">${v.producto}</div>
               <div style="font-size:11px; color:var(--text3); margin-top:2px;">Talle ${v.talle} · ${fmtDate(v.fecha)} · <i class="ti ${canalIcon}"></i> ${v.canal}</div>
             </div>
+            <div style="display:flex; align-items:center; gap:8px;">
             <div class="${ganClass}" style="font-size:16px; font-weight:700;">${fmtMoney(ganTotal)}</div>
+            <button class="btn sm" onclick="editarVenta('${v.id}')" title="Editar"><i class="ti ti-pencil"></i></button>
+          </div>
           </div>
           ${mode==='grande' ? `
           <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-size:11px; color:var(--text3); padding-top:10px; border-top:1px solid var(--border);">
