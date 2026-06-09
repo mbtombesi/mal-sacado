@@ -1595,6 +1595,24 @@
 </div>
 
 <script>
+
+// ═══════════════════════════
+// TOAST NOTIFICATIONS
+// ═══════════════════════════
+function showToast(msg, ok = true) {
+  const toast = document.getElementById('toast');
+  const icon  = document.getElementById('toast-icon');
+  const msgEl = document.getElementById('toast-msg');
+  if (!toast) { console.log(msg); return; }
+  msgEl.textContent = msg;
+  toast.style.borderLeftColor = ok ? 'var(--green)' : 'var(--red)';
+  icon.style.color = ok ? 'var(--green)' : 'var(--red)';
+  icon.className = ok ? 'ti ti-check' : 'ti ti-x';
+  toast.style.display = 'flex';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.display = 'none'; }, 3000);
+}
+
 // ═══════════════════════════
 // DATA STORE
 // ═══════════════════════════
@@ -3090,5 +3108,19 @@ document.addEventListener('DOMContentLoaded', () => {
   renderAll();
 });
 </script>
+
+<!-- TOAST -->
+<div id="toast" style="
+  position:fixed; bottom:90px; right:20px; z-index:999;
+  background:var(--surface); border:1px solid var(--border2);
+  border-radius:10px; padding:12px 18px; font-size:13px; color:var(--text);
+  display:none; align-items:center; gap:10px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  border-left: 3px solid var(--green);
+  max-width: 320px;
+">
+  <i id="toast-icon" class="ti ti-check" style="font-size:16px; color:var(--green); flex-shrink:0;"></i>
+  <span id="toast-msg"></span>
+</div>
 </body>
 </html>
