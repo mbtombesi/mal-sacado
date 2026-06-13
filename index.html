@@ -1066,6 +1066,23 @@
   /* Envios en proveedor detail */
   .prov-envios-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
   .prov-envios-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+
+  /* ── ESTADO DE PAGO / FACTURA ── */
+  .pago-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    cursor: pointer; border: 1px solid transparent; transition: all .15s; white-space: nowrap;
+    user-select: none;
+  }
+  .pago-badge:hover { filter: brightness(1.15); }
+  .pago-badge.efectivo { background: rgba(61,214,140,0.12); color: var(--green); border-color: rgba(61,214,140,0.25); }
+  .pago-badge.transferencia-pendiente { background: rgba(255,170,60,0.12); color: var(--orange); border-color: rgba(255,170,60,0.25); }
+  .pago-badge.transferencia-facturado { background: rgba(92,184,255,0.12); color: var(--blue); border-color: rgba(92,184,255,0.25); }
+  .pago-badge i { font-size: 13px; }
+
+  .venta-extra-info { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .venta-extra-info .comprador { color: var(--text2); }
+  .venta-extra-info .obs { font-style: italic; }
 </style>
 </head>
 <body>
@@ -1619,14 +1636,37 @@
       <label class="form-label">Fecha</label>
       <input type="date" class="form-input" id="v-fecha">
     </div>
+    <div class="form-grid-2">
+      <div class="form-row">
+        <label class="form-label">Canal de venta</label>
+        <select class="form-select" id="v-canal">
+          <option value="instagram">Instagram</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="presencial">Presencial</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Método de pago</label>
+        <select class="form-select" id="v-metodo-pago" onchange="toggleFacturaField()">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="v-factura-row">
+      <label class="form-label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="v-facturado" style="width:16px; height:16px; accent-color: var(--accent); cursor:pointer;">
+        ¿Ya hiciste la factura?
+      </label>
+    </div>
     <div class="form-row">
-      <label class="form-label">Canal de venta</label>
-      <select class="form-select" id="v-canal">
-        <option value="instagram">Instagram</option>
-        <option value="whatsapp">WhatsApp</option>
-        <option value="presencial">Presencial</option>
-        <option value="otro">Otro</option>
-      </select>
+      <label class="form-label">Nombre del comprador <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(opcional)</span></label>
+      <input type="text" class="form-input" id="v-comprador" placeholder="Ej: Juan Pérez">
+    </div>
+    <div class="form-row">
+      <label class="form-label">Observación <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(opcional)</span></label>
+      <input type="text" class="form-input" id="v-observacion" placeholder="Ej: Pidió cambio de talle, entregar el sábado...">
     </div>
     <div id="v-stock-info" class="hint"></div>
     <div class="form-actions">
@@ -2070,6 +2110,56 @@ function populateVentaSelect() {
   };
 }
 
+
+// ═══════════════════════════
+// MÉTODO DE PAGO / FACTURA
+// ═══════════════════════════
+function toggleFacturaField() {
+  const metodo = document.getElementById('v-metodo-pago').value;
+  const row = document.getElementById('v-factura-row');
+  if (metodo === 'efectivo') {
+    row.style.display = 'none';
+  } else {
+    row.style.display = 'block';
+  }
+}
+
+// Estado de pago/factura para mostrar en listados:
+//   - efectivo            -> no necesita factura
+//   - transferencia + facturado=false -> "Falta factura"
+//   - transferencia + facturado=true  -> "Facturado"
+function getPagoBadge(v) {
+  const metodo = v.metodoPago || 'efectivo';
+  if (metodo === 'efectivo') {
+    return { cls: 'efectivo', icon: 'ti-cash', label: 'Efectivo' };
+  }
+  if (v.facturado) {
+    return { cls: 'transferencia-facturado', icon: 'ti-file-check', label: 'Facturado' };
+  }
+  return { cls: 'transferencia-pendiente', icon: 'ti-file-alert', label: 'Falta factura' };
+}
+
+function togglePagoVenta(id, event) {
+  if (event) event.stopPropagation();
+  const v = DATA.ventas.find(x => String(x.id) === String(id));
+  if (!v) return;
+  const metodo = v.metodoPago || 'efectivo';
+  if (metodo === 'efectivo') {
+    // Cambia a transferencia sin facturar
+    v.metodoPago = 'transferencia';
+    v.facturado = false;
+  } else if (!v.facturado) {
+    // De "falta factura" a "facturado"
+    v.facturado = true;
+  } else {
+    // De "facturado" vuelve a efectivo (ciclo completo)
+    v.metodoPago = 'efectivo';
+    v.facturado = false;
+  }
+  save();
+  renderAll();
+}
+
 function guardarVenta() {
   const editId = document.getElementById('v-edit-id').value;
   const cantidad = parseInt(document.getElementById('v-cantidad').value) || 0;
@@ -2086,6 +2176,11 @@ function guardarVenta() {
     const vOld = DATA.ventas[idx];
     const talleNuevo = document.getElementById('v-talle-edit').value.trim() || vOld.talle;
     const skNuevo = vOld.stockKey.split('__')[0] + '__' + talleNuevo.toUpperCase();
+    const metodoPago = document.getElementById('v-metodo-pago').value;
+    const facturado = metodoPago === 'transferencia' ? document.getElementById('v-facturado').checked : false;
+    const comprador = document.getElementById('v-comprador').value.trim();
+    const observacion = document.getElementById('v-observacion').value.trim();
+
     DATA.ventas[idx] = {
       ...vOld,
       stockKey: skNuevo,
@@ -2094,7 +2189,11 @@ function guardarVenta() {
       precioVenta: precio,
       ganancia: (precio - vOld.costoUnit) * cantidad,
       fecha,
-      canal
+      canal,
+      metodoPago,
+      facturado,
+      comprador,
+      observacion
     };
     save();
     closeModal('modal-venta');
@@ -2112,6 +2211,11 @@ function guardarVenta() {
       alert(`Solo tenés ${item.disponible} unidades disponibles.`);
       return;
     }
+    const metodoPago = document.getElementById('v-metodo-pago').value;
+    const facturado = metodoPago === 'transferencia' ? document.getElementById('v-facturado').checked : false;
+    const comprador = document.getElementById('v-comprador').value.trim();
+    const observacion = document.getElementById('v-observacion').value.trim();
+
     DATA.ventas.push({
       id: Date.now(),
       stockKey,
@@ -2123,6 +2227,10 @@ function guardarVenta() {
       ganancia: (precio - item.costoUnit) * cantidad,
       fecha,
       canal,
+      metodoPago,
+      facturado,
+      comprador,
+      observacion
     });
     save();
     closeModal('modal-venta');
@@ -2154,6 +2262,11 @@ function editarVenta(id) {
   document.getElementById('v-precio').value = v.precioVenta;
   document.getElementById('v-fecha').value = v.fecha;
   document.getElementById('v-canal').value = v.canal || 'instagram';
+  document.getElementById('v-metodo-pago').value = v.metodoPago || 'efectivo';
+  document.getElementById('v-facturado').checked = !!v.facturado;
+  document.getElementById('v-comprador').value = v.comprador || '';
+  document.getElementById('v-observacion').value = v.observacion || '';
+  toggleFacturaField();
   document.getElementById('v-stock-info').textContent = `Costo unitario: $${Math.round(v.costoUnit).toLocaleString('es-AR')}`;
 
   document.getElementById('modal-venta').classList.add('open');
@@ -2166,6 +2279,11 @@ function resetModalVenta() {
   document.getElementById('v-talle-edit').value = '';
   document.getElementById('v-talle-row').style.display = 'none';
   document.getElementById('v-stock-info').textContent = '';
+  document.getElementById('v-metodo-pago').value = 'efectivo';
+  document.getElementById('v-facturado').checked = false;
+  document.getElementById('v-comprador').value = '';
+  document.getElementById('v-observacion').value = '';
+  toggleFacturaField();
   document.getElementById('modal-venta-title').childNodes[0].textContent = 'Registrar venta ';
   document.getElementById('v-submit-btn').innerHTML = '<i class="ti ti-shopping-cart"></i> Registrar venta';
   document.getElementById('v-producto-row').innerHTML = `
@@ -2672,7 +2790,7 @@ function renderVentas() {
   margenEl.className = 'metric-value ' + (margen >= 0 ? 'green' : 'red');
 
   if (DATA.ventas.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text3);">Sin ventas registradas.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text3);">Sin ventas registradas.</td></tr>';
     return;
   }
 
@@ -2687,15 +2805,23 @@ function renderVentas() {
     tbody.innerHTML = sorted.map(v => {
       const ganTotal = v.ganancia;
       const ganClass = ganTotal >= 0 ? 'text-green' : 'text-red';
+      const badge = getPagoBadge(v);
+      const extraInfo = (v.comprador || v.observacion) ? `
+        <div class="venta-extra-info">
+          ${v.comprador ? `<span class="comprador"><i class="ti ti-user" style="font-size:10px;"></i> ${v.comprador}</span>` : ''}
+          ${v.comprador && v.observacion ? ' · ' : ''}
+          ${v.observacion ? `<span class="obs">${v.observacion}</span>` : ''}
+        </div>` : '';
       return `
         <tr>
           <td>${fmtDate(v.fecha)}</td>
-          <td class="font-bold">${v.producto}</td>
+          <td class="font-bold">${v.producto}${extraInfo}</td>
           <td>${v.talle}</td>
           <td>${v.cantidad}</td>
           <td>${fmtMoney(v.precioVenta)}</td>
           <td>${fmtMoney(v.costoUnit)}</td>
           <td class="${ganClass} font-bold">${fmtMoney(ganTotal)}</td>
+          <td><span class="pago-badge ${badge.cls}" onclick="togglePagoVenta(${v.id}, event)" title="Click para cambiar"><i class="ti ${badge.icon}"></i> ${badge.label}</span></td>
           <td><button class="btn sm" onclick="editarVenta(${v.id})" title="Editar"><i class="ti ti-pencil"></i></button></td>
         </tr>
       `;
@@ -2707,12 +2833,20 @@ function renderVentas() {
       const ganTotal = v.ganancia;
       const ganClass = ganTotal >= 0 ? 'text-green' : 'text-red';
       const canalIcon = { instagram:'ti-brand-instagram', whatsapp:'ti-brand-whatsapp', presencial:'ti-map-pin', otro:'ti-dots' }[v.canal] || 'ti-dots';
+      const badge = getPagoBadge(v);
+      const extraInfo = (v.comprador || v.observacion) ? `
+        <div class="venta-extra-info">
+          ${v.comprador ? `<span class="comprador"><i class="ti ti-user" style="font-size:10px;"></i> ${v.comprador}</span>` : ''}
+          ${v.comprador && v.observacion ? ' · ' : ''}
+          ${v.observacion ? `<span class="obs">${v.observacion}</span>` : ''}
+        </div>` : '';
       return `
         <div class="card card-dyn">
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:${mode==='grande'?'12':'8'}px;">
             <div>
               <div style="font-size:${mode==='grande'?'14':'13'}px; font-weight:600; color:var(--text);">${v.producto}</div>
               <div style="font-size:11px; color:var(--text3); margin-top:2px;">Talle ${v.talle} · ${fmtDate(v.fecha)} · <i class="ti ${canalIcon}"></i> ${v.canal}</div>
+              ${extraInfo}
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
               <div class="${ganClass}" style="font-size:16px; font-weight:700;">${fmtMoney(ganTotal)}</div>
@@ -2725,6 +2859,9 @@ function renderVentas() {
             <div><div style="color:var(--text2); font-size:12px;">${fmtMoney(v.precioVenta)}</div>Precio venta</div>
             <div><div style="color:var(--text2); font-size:12px;">${fmtMoney(v.costoUnit)}</div>Costo unit.</div>
           </div>` : `<div style="font-size:11px; color:var(--text3);">${v.cantidad} und. · ${fmtMoney(v.precioVenta)} c/u</div>`}
+          <div style="margin-top:${mode==='grande'?'10':'8'}px; padding-top:${mode==='grande'?'10':'8'}px; border-top:1px solid var(--border);">
+            <span class="pago-badge ${badge.cls}" onclick="togglePagoVenta(${v.id}, event)" title="Click para cambiar"><i class="ti ${badge.icon}"></i> ${badge.label}</span>
+          </div>
         </div>`;
     }).join('');
   }
