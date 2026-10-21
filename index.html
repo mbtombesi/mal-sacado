@@ -1226,7 +1226,7 @@
   <div>
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.3 · 21/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.4 · 21/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
@@ -2266,8 +2266,15 @@
       </div>
     </div>
     <div class="form-row">
-      <label class="form-label">Precio de venta ($)</label>
-      <input type="number" class="form-input" id="sr-precio" min="0" placeholder="25000">
+      <label class="form-label">Precio de venta ($) <span style="text-transform:none; letter-spacing:0; color:var(--text3);">— el real, por transferencia</span></label>
+      <input type="number" class="form-input" id="sr-precio" min="0" placeholder="25000" oninput="calcularPrecioTiendanubeRapido()">
+    </div>
+    <div class="form-row" id="sr-tn-row" style="margin-top:-10px;">
+      <div class="hint" style="background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:9px 14px; display:flex; align-items:center; gap:8px;">
+        <i class="ti ti-tag" style="font-size:14px;"></i>
+        <span>Precio <strong>promocional</strong> a poner en Tiendanube: <strong id="sr-tn-promo" style="color:var(--accent);">—</strong>
+        <span style="color:var(--text3);"> (con el 20% off transferencia de Tiendanube queda en <span id="sr-tn-chequeo">—</span>, el precio real de arriba)</span></span>
+      </div>
     </div>
     <div class="form-row">
       <label class="form-label">Fecha <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(cuándo lo compraste, si te acordás)</span></label>
@@ -2309,6 +2316,17 @@
       <label class="form-label">Palabra clave <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(equipo, jugador, nombre del producto...)</span></label>
       <input type="text" class="form-input" id="rep-keyword" placeholder="Ej: Boca, Messi, River..." oninput="renderPreviewInformeStock()">
     </div>
+    <div class="form-grid-2">
+      <div class="form-row">
+        <label class="form-label">Comprado desde <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(opcional)</span></label>
+        <input type="date" class="form-input" id="rep-fecha-desde" onchange="renderPreviewInformeStock()">
+      </div>
+      <div class="form-row">
+        <label class="form-label">Comprado hasta <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(opcional)</span></label>
+        <input type="date" class="form-input" id="rep-fecha-hasta" onchange="renderPreviewInformeStock()">
+      </div>
+    </div>
+    <div class="hint" style="margin-top:-10px; margin-bottom:14px;">Usalo para no reimprimir todo: poné "Comprado desde" el día después de tu último informe y vas a ver solo los talles con movimiento de compra nuevo desde esa fecha (sea producto nuevo o reposición de uno que ya tenías).</div>
     <div class="form-row">
       <label class="form-label">Stock</label>
       <div class="view-controls" id="rep-stock-toggle" style="width:fit-content;">
@@ -3242,6 +3260,24 @@ function calcularPrecioTiendanube(pid) {
   if (chequeoEl) chequeoEl.textContent = fmtMoney(promo * 0.8);
 }
 
+// Misma cuenta que calcularPrecioTiendanube() pero para el modal rápido de
+// "Agregar producto" (modal-stock-rapido), que usa ids fijos en vez de pid.
+function calcularPrecioTiendanubeRapido() {
+  const precioInput = document.getElementById('sr-precio');
+  const promoEl = document.getElementById('sr-tn-promo');
+  const chequeoEl = document.getElementById('sr-tn-chequeo');
+  if (!precioInput || !promoEl) return;
+  const precioReal = parseFloat(precioInput.value) || 0;
+  if (precioReal <= 0) {
+    promoEl.textContent = '—';
+    if (chequeoEl) chequeoEl.textContent = '—';
+    return;
+  }
+  const promo = precioReal / 0.8;
+  promoEl.textContent = fmtMoney(promo);
+  if (chequeoEl) chequeoEl.textContent = fmtMoney(promo * 0.8);
+}
+
 function removeProductoBlock(pid) {
   const container = document.getElementById('productos-container');
   if (container.children.length > 1) {
@@ -3504,6 +3540,10 @@ function resetModalStockRapido() {
   document.getElementById('sr-cantidad').value = 1;
   document.getElementById('sr-categoria').value = 'camiseta';
   document.getElementById('sr-fecha').value = today();
+  const tnPromo = document.getElementById('sr-tn-promo');
+  const tnChequeo = document.getElementById('sr-tn-chequeo');
+  if (tnPromo) tnPromo.textContent = '—';
+  if (tnChequeo) tnChequeo.textContent = '—';
 }
 
 function guardarStockRapido() {
@@ -4846,12 +4886,24 @@ function obtenerFilasInformeStock() {
   const proveedor = document.getElementById('rep-proveedor').value;
   const talle = document.getElementById('rep-talle').value;
   const kw = (document.getElementById('rep-keyword').value || '').toLowerCase().trim();
+  const desde = document.getElementById('rep-fecha-desde').value;
+  const hasta = document.getElementById('rep-fecha-hasta').value;
 
   let filas = Object.values(map);
   if (_repStockFilter !== 'todo') filas = filas.filter(r => r.disponible > 0);
   if (proveedor) filas = filas.filter(r => r.proveedor === proveedor);
   if (talle) filas = filas.filter(r => r.talle === talle);
   if (kw) filas = filas.filter(r => r.producto.toLowerCase().includes(kw));
+  if (desde || hasta) {
+    const comprasById = new Map(DATA.compras.map(c => [c.id, c]));
+    filas = filas.filter(r => (r.compraIds || []).some(id => {
+      const c = comprasById.get(id);
+      if (!c) return false;
+      if (desde && c.fecha < desde) return false;
+      if (hasta && c.fecha > hasta) return false;
+      return true;
+    }));
+  }
 
   filas.sort((a, b) =>
     a.producto.localeCompare(b.producto, 'es', { sensitivity: 'base' }) ||
@@ -4895,10 +4947,15 @@ function generarInformeStockPDF() {
   const proveedor = document.getElementById('rep-proveedor').value;
   const talle = document.getElementById('rep-talle').value;
   const kw = document.getElementById('rep-keyword').value.trim();
+  const desde = document.getElementById('rep-fecha-desde').value;
+  const hasta = document.getElementById('rep-fecha-hasta').value;
   const filtrosAplicados = [];
   if (proveedor) filtrosAplicados.push('Proveedor: ' + proveedor);
   if (talle) filtrosAplicados.push('Talle: ' + talle);
   if (kw) filtrosAplicados.push('Búsqueda: "' + kw + '"');
+  if (desde && hasta) filtrosAplicados.push('Comprado entre ' + fmtDate(desde) + ' y ' + fmtDate(hasta));
+  else if (desde) filtrosAplicados.push('Comprado desde ' + fmtDate(desde));
+  else if (hasta) filtrosAplicados.push('Comprado hasta ' + fmtDate(hasta));
   filtrosAplicados.push(_repStockFilter === 'todo' ? 'Incluye agotados' : 'Solo con stock disponible');
 
   const totalCantidad = filas.reduce((s, r) => s + Math.max(0, r.disponible), 0);
