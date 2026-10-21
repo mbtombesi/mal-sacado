@@ -1003,12 +1003,18 @@
   /* talles editor en modal detail */
   .talle-edit-row {
     display: grid;
-    grid-template-columns: 1fr 90px 36px;
+    grid-template-columns: 1fr 90px 90px 36px;
     gap: 8px;
     align-items: center;
     margin-bottom: 8px;
   }
   .talle-edit-row input { margin: 0; padding: 6px 10px; font-size: 13px; }
+  .talle-edit-headers {
+    display: grid;
+    grid-template-columns: 1fr 90px 90px 36px;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
 
   /* stock thumbnail en cards (cuando hay foto) */
   .card-thumb {
@@ -1226,7 +1232,7 @@
   <div>
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.4 · 21/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.5 · 21/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
@@ -6020,6 +6026,7 @@ async function openProductoDetail(key) {
           <span style="font-size:11px; color:var(--text3); margin-left:6px;">${disp} disp. / ${c.cantidad} comprados</span>
         </div>
         <input type="number" class="form-input" value="${c.costoUnit}" id="te-costo-${c.id}" min="0" placeholder="Costo">
+        <input type="number" class="form-input" value="${c.precioVenta}" id="te-precio-${c.id}" min="0" placeholder="Precio">
         <button class="btn-icon" onclick="eliminarCompra(${c.id}); closeModal('modal-producto'); renderAll()" title="Eliminar este talle"><i class="ti ti-trash"></i></button>
       </div>
     `;
@@ -6052,7 +6059,7 @@ async function openProductoDetail(key) {
       </div>
       <div class="detail-field">
         <div class="detail-field-label">Precio venta ($)</div>
-        <input class="form-input detail-field-val" id="te-precio" type="number" value="${v.precioVenta}">
+        <input class="form-input detail-field-val" id="te-precio" type="number" value="${v.precioVenta}" oninput="syncPrecioVentaATalles()">
       </div>
       <div class="detail-field">
         <div class="detail-field-label">Costo unit. ($)</div>
@@ -6066,12 +6073,14 @@ async function openProductoDetail(key) {
 
     <div style="margin-bottom:20px;">
       <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text3); margin-bottom:10px;">Talles comprados</div>
-      <div class="talle-headers" style="margin-bottom:6px;">
+      <div class="talle-edit-headers">
         <span style="font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:1px;">Talle</span>
         <span style="font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:1px;">Costo unit.</span>
+        <span style="font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:1px;">Precio venta</span>
         <span></span>
       </div>
       ${tallesHtml || '<p style="font-size:13px; color:var(--text3);">Sin registros.</p>'}
+      <div class="hint" style="margin-top:8px;">El precio de venta de arriba se aplica a todos los talles. Si querés un precio distinto para alguno en particular, cambialo acá.</div>
     </div>
 
     <div class="form-actions">
@@ -6155,7 +6164,14 @@ async function deletePhoto(btn) {
   renderStock();
 }
 
-function guardarEdicionProducto() {
+// Cuando se toca el precio de venta de arriba, se refleja en todos los talles
+// de la lista de abajo (que siguen siendo editables individualmente después).
+function syncPrecioVentaATalles() {
+  const val = document.getElementById('te-precio').value;
+  document.querySelectorAll('[id^="te-precio-"]').forEach(inp => { inp.value = val; });
+}
+
+async function guardarEdicionProducto() {
   if (!_editKey) return;
   const nuevoNombre = document.getElementById('te-nombre').value.trim();
   const nuevaCat    = document.getElementById('te-cat').value;
@@ -6164,33 +6180,42 @@ function guardarEdicionProducto() {
 
   if (!nuevoNombre) { alert('El nombre no puede estar vacío.'); return; }
 
-  // Get original producto y talle a partir de la clave (producto__talle)
+  // Get original producto a partir de la clave (producto__talle)
   const separadorIdx = _editKey.lastIndexOf('__');
   const originalNombre = _editKey.slice(0, separadorIdx);
-  const originalTalle = _editKey.slice(separadorIdx + 2);
+
+  // Todos los talles que tiene este producto (para migrar fotos más abajo).
+  const tallesDeEste = [...new Set(DATA.compras.filter(c => c.producto === originalNombre).map(c => c.talle))];
 
   DATA.compras.forEach(c => {
-    if (c.producto === originalNombre && c.talle === originalTalle) {
-      c.producto   = nuevoNombre;
-      c.categoria  = nuevaCat;
-      c.precioVenta = nuevoPrecio;
-      c.costoUnit  = nuevoCosto;
-      c.total      = c.cantidad * nuevoCosto;
+    if (c.producto === originalNombre) {
+      // Cada talle tiene su propio input de costo/precio en "Talles comprados"
+      // (el de precio arranca igual al de arriba, pero se puede pisar por talle).
+      const precioInput = document.getElementById(`te-precio-${c.id}`);
+      const costoInput  = document.getElementById(`te-costo-${c.id}`);
+      const precioTalle = precioInput ? (parseFloat(precioInput.value) || 0) : nuevoPrecio;
+      const costoTalle  = costoInput  ? (parseFloat(costoInput.value)  || 0) : nuevoCosto;
+      c.producto    = nuevoNombre;
+      c.categoria   = nuevaCat;
+      c.precioVenta = precioTalle;
+      c.costoUnit   = costoTalle;
+      c.total       = c.cantidad * costoTalle;
     }
   });
   DATA.ventas.forEach(v => {
-    if (v.producto === originalNombre && v.talle === originalTalle) {
+    if (v.producto === originalNombre) {
       v.producto = nuevoNombre;
     }
   });
 
-  // Also save photos under new key if name changed
+  // Also save photos under new key if name changed (para todos los talles)
   if (nuevoNombre !== originalNombre) {
-    const oldKey = _editKey;
-    const newKey = nuevoNombre + '__' + originalTalle;
-    const photos = getPhotos(oldKey);
-    savePhotos(newKey, photos);
-    localStorage.removeItem('photo_' + oldKey);
+    for (const talle of tallesDeEste) {
+      const oldKey = originalNombre + '__' + talle;
+      const newKey = nuevoNombre + '__' + talle;
+      const photos = await getPhotos(oldKey);
+      if (photos.length) await savePhotos(newKey, photos);
+    }
   }
 
   save();
