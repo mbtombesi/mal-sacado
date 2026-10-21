@@ -1226,7 +1226,7 @@
   <div>
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.2 · 09/09/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.3 · 21/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
@@ -1603,6 +1603,7 @@
     </div>
     <div class="tab-toolbar-right">
       <button class="btn primary sm" onclick="openModal('modal-stock-rapido')" title="Agregar un producto directo al stock"><i class="ti ti-plus"></i> Agregar producto</button>
+      <button class="btn sm" onclick="abrirInformeStock()" title="Armar una planilla filtrable de tu stock, lista para imprimir o guardar como PDF"><i class="ti ti-file-type-pdf"></i> Informe PDF</button>
       <div class="view-controls" id="stock-view-controls">
         <button class="view-btn active" onclick="setView('stock','lista',this)" title="Vista lista"><i class="ti ti-list"></i></button>
         <button class="view-btn" onclick="setView('stock','media',this)" title="Vista mediana"><i class="ti ti-layout-grid"></i></button>
@@ -2280,6 +2281,65 @@
 </div>
 
 <!-- ═══════════════════════════════════════
+     MODAL: INFORME DE STOCK (PDF / IMPRIMIR)
+═══════════════════════════════════════ -->
+<div class="overlay" id="modal-informe-stock">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-title">
+      Informe de stock
+      <button class="modal-close" onclick="closeModal('modal-informe-stock')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="hint" style="margin-bottom:16px;">Combiná los filtros que necesites. Abajo se arma una vista previa; cuando esté como querés, generás el PDF para imprimir o guardar.</div>
+
+    <div class="form-grid-2">
+      <div class="form-row">
+        <label class="form-label">Proveedor</label>
+        <select class="form-select" id="rep-proveedor" onchange="renderPreviewInformeStock()">
+          <option value="">Todos los proveedores</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Talle</label>
+        <select class="form-select" id="rep-talle" onchange="renderPreviewInformeStock()">
+          <option value="">Todos los talles</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="form-label">Palabra clave <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(equipo, jugador, nombre del producto...)</span></label>
+      <input type="text" class="form-input" id="rep-keyword" placeholder="Ej: Boca, Messi, River..." oninput="renderPreviewInformeStock()">
+    </div>
+    <div class="form-row">
+      <label class="form-label">Stock</label>
+      <div class="view-controls" id="rep-stock-toggle" style="width:fit-content;">
+        <button type="button" class="view-btn active" data-val="solo" onclick="setRepStockFilter('solo', this)" style="width:auto; padding:5px 14px; font-size:12px;">Solo con stock</button>
+        <button type="button" class="view-btn" data-val="todo" onclick="setRepStockFilter('todo', this)" style="width:auto; padding:5px 14px; font-size:12px;">Incluir agotados</button>
+      </div>
+    </div>
+
+    <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+        <span class="card-title" style="font-size:12px;">VISTA PREVIA</span>
+        <span class="hint" id="rep-preview-count" style="margin:0;"></span>
+      </div>
+      <div class="table-wrap" style="max-height:280px; overflow-y:auto;">
+        <table>
+          <thead>
+            <tr><th>Producto</th><th>Talle</th><th>Cant.</th><th>Costo</th><th>Proveedor</th></tr>
+          </thead>
+          <tbody id="rep-preview-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-informe-stock')">Cerrar</button>
+      <button class="btn primary" onclick="generarInformeStockPDF()"><i class="ti ti-printer"></i> Generar PDF / Imprimir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
      MODAL: REGISTRAR ENVÍO
 ═══════════════════════════════════════ -->
 <div class="overlay" id="modal-envio">
@@ -2342,9 +2402,14 @@
     <input type="hidden" id="v-edit-id">
     <div class="form-row" id="v-producto-row">
       <label class="form-label">Producto</label>
-      <select class="form-select" id="v-producto">
-        <option value="">— Seleccioná un producto —</option>
-      </select>
+      <div class="autocomplete-wrap">
+        <input type="text" class="form-input" id="v-producto-search" placeholder="Escribí el producto, equipo o talle..." autocomplete="off"
+          oninput="acFilterVentaProducto()"
+          onfocus="acFilterVentaProducto()"
+          onblur="setTimeout(()=>acClose('ac-v-producto'),150)">
+        <div class="autocomplete-list" id="ac-v-producto"></div>
+      </div>
+      <input type="hidden" id="v-producto" value="">
     </div>
     <div class="form-row" id="v-talle-row" style="display:none;">
       <label class="form-label">Talle</label>
@@ -3130,8 +3195,15 @@ function addProductoBlock() {
         </select>
       </div>
       <div class="form-row">
-        <label class="form-label">Precio venta sugerido ($)</label>
-        <input type="number" class="form-input" id="cp-precio-${pid}" min="0" placeholder="25000">
+        <label class="form-label">Precio venta sugerido ($) <span style="text-transform:none; letter-spacing:0; color:var(--text3);">— el real, por transferencia</span></label>
+        <input type="number" class="form-input" id="cp-precio-${pid}" min="0" placeholder="25000" oninput="calcularPrecioTiendanube(${pid})">
+      </div>
+    </div>
+    <div class="form-row" id="cp-tn-row-${pid}" style="margin-top:-10px;">
+      <div class="hint" style="background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:9px 14px; display:flex; align-items:center; gap:8px;">
+        <i class="ti ti-tag" style="font-size:14px;"></i>
+        <span>Precio <strong>promocional</strong> a poner en Tiendanube: <strong id="cp-tn-promo-${pid}" style="color:var(--accent);">—</strong>
+        <span style="color:var(--text3);"> (con el 20% off transferencia de Tiendanube queda en <span id="cp-tn-chequeo-${pid}">—</span>, el precio real de arriba)</span></span>
       </div>
     </div>
     <div class="form-row" style="margin-bottom:0;">
@@ -3148,6 +3220,26 @@ function addProductoBlock() {
   `;
   container.appendChild(block);
   addTalleRow(pid);
+}
+
+// Tiendanube aplica el 20% off por transferencia sobre el precio promocional,
+// no sobre el precio de venta (de lista). Entonces para que el cliente termine
+// pagando por transferencia el precio real que vos querés cobrar, el precio
+// promocional tiene que ser ese precio real dividido 0.8 (es decir, un 25% más).
+function calcularPrecioTiendanube(pid) {
+  const precioInput = document.getElementById(`cp-precio-${pid}`);
+  const promoEl = document.getElementById(`cp-tn-promo-${pid}`);
+  const chequeoEl = document.getElementById(`cp-tn-chequeo-${pid}`);
+  if (!precioInput || !promoEl) return;
+  const precioReal = parseFloat(precioInput.value) || 0;
+  if (precioReal <= 0) {
+    promoEl.textContent = '—';
+    if (chequeoEl) chequeoEl.textContent = '—';
+    return;
+  }
+  const promo = precioReal / 0.8;
+  promoEl.textContent = fmtMoney(promo);
+  if (chequeoEl) chequeoEl.textContent = fmtMoney(promo * 0.8);
 }
 
 function removeProductoBlock(pid) {
@@ -3202,7 +3294,6 @@ function openModal(id) {
   if (id === 'modal-venta') {
     if (!document.getElementById('v-edit-id').value) {
       resetModalVenta();
-      populateVentaSelect();
     }
   }
   if (id === 'modal-importexport') refreshExport();
@@ -3681,28 +3772,45 @@ function renderEncargues() {
 // ═══════════════════════════
 // GUARDAR VENTA
 // ═══════════════════════════
-function populateVentaSelect() {
+// Buscador de producto para "Registrar venta": antes era un <select> con todo el
+// stock, que había que desplegar y no se podía filtrar escribiendo. Ahora es un
+// campo de texto que filtra por nombre, equipo o talle a medida que se escribe.
+function acFilterVentaProducto() {
+  const input = document.getElementById('v-producto-search');
+  const list = document.getElementById('ac-v-producto');
+  if (!input || !list) return;
+  const val = input.value.toLowerCase().trim();
   const map = buildStockMap();
-  const sel = document.getElementById('v-producto');
-  sel.innerHTML = '<option value="">— Seleccioná un producto —</option>';
-  Object.entries(map).filter(([k,v]) => v.disponible > 0).forEach(([k,v]) => {
-    const opt = document.createElement('option');
-    opt.value = k;
-    opt.textContent = `${v.producto} (Talle: ${v.talle}) — Stock: ${v.disponible}`;
-    sel.appendChild(opt);
-  });
+  const items = Object.entries(map)
+    .filter(([k, v]) => v.disponible > 0)
+    .filter(([k, v]) => !val || (v.producto + ' ' + v.talle).toLowerCase().includes(val))
+    .sort((a, b) => a[1].producto.localeCompare(b[1].producto, 'es', { sensitivity: 'base' }) || a[1].talle.localeCompare(b[1].talle, 'es', { sensitivity: 'base' }));
 
-  sel.onchange = () => {
-    const k = sel.value;
-    const item = map[k];
-    const info = document.getElementById('v-stock-info');
-    if (item) {
-      document.getElementById('v-precio').value = item.precioVenta || '';
-      info.textContent = `Disponibles: ${item.disponible} unidades · Costo unit.: ${fmtMoney(item.costoUnit)}`;
-    } else {
-      info.textContent = '';
-    }
-  };
+  if (items.length === 0) {
+    list.innerHTML = `<div class="autocomplete-item" style="color:var(--text3); cursor:default;">Sin stock que coincida con "${input.value}"</div>`;
+    list.classList.add('open');
+    return;
+  }
+  list.innerHTML = items.map(([k, v]) =>
+    `<div class="autocomplete-item" data-key="${k}" onmousedown="seleccionarProductoVenta(this)">${v.producto} (Talle: ${v.talle}) — Stock: ${v.disponible}</div>`
+  ).join('');
+  list.classList.add('open');
+}
+
+function seleccionarProductoVenta(el) {
+  const k = el.dataset.key;
+  const map = buildStockMap();
+  const item = map[k];
+  document.getElementById('v-producto').value = k;
+  document.getElementById('v-producto-search').value = item ? `${item.producto} (Talle: ${item.talle})` : '';
+  acClose('ac-v-producto');
+  const info = document.getElementById('v-stock-info');
+  if (item) {
+    document.getElementById('v-precio').value = item.precioVenta || '';
+    info.textContent = `Disponibles: ${item.disponible} unidades · Costo unit.: ${fmtMoney(item.costoUnit)}`;
+  } else if (info) {
+    info.textContent = '';
+  }
 }
 
 
@@ -3917,9 +4025,14 @@ function resetModalVenta() {
   if (delBtn) delBtn.style.display = 'none';
   document.getElementById('v-producto-row').innerHTML = `
     <label class="form-label">Producto</label>
-    <select class="form-select" id="v-producto">
-      <option value="">— Seleccioná un producto —</option>
-    </select>
+    <div class="autocomplete-wrap">
+      <input type="text" class="form-input" id="v-producto-search" placeholder="Escribí el producto, equipo o talle..." autocomplete="off"
+        oninput="acFilterVentaProducto()"
+        onfocus="acFilterVentaProducto()"
+        onblur="setTimeout(()=>acClose('ac-v-producto'),150)">
+      <div class="autocomplete-list" id="ac-v-producto"></div>
+    </div>
+    <input type="hidden" id="v-producto" value="">
   `;
 }
 
@@ -4693,6 +4806,180 @@ function openProveedorDetail(nombre) {
   document.getElementById('mp-title').textContent = nombre;
   document.getElementById('mp-body').innerHTML = body;
   document.getElementById('modal-proveedor').classList.add('open');
+}
+
+// ═══════════════════════════
+// INFORME DE STOCK (PDF / IMPRIMIR)
+// ═══════════════════════════
+let _repStockFilter = 'solo'; // 'solo' = solo con stock disponible, 'todo' = incluye agotados
+
+function abrirInformeStock() {
+  poblarFiltrosInformeStock();
+  renderPreviewInformeStock();
+  openModal('modal-informe-stock');
+}
+
+function poblarFiltrosInformeStock() {
+  const selProv = document.getElementById('rep-proveedor');
+  const selTalle = document.getElementById('rep-talle');
+  const prevProv = selProv.value;
+  const prevTalle = selTalle.value;
+  selProv.innerHTML = '<option value="">Todos los proveedores</option>' +
+    getProveedores().map(p => `<option value="${p}">${p}</option>`).join('');
+  selTalle.innerHTML = '<option value="">Todos los talles</option>' +
+    getTalles().map(t => `<option value="${t}">${t}</option>`).join('');
+  if ([...selProv.options].some(o => o.value === prevProv)) selProv.value = prevProv;
+  if ([...selTalle.options].some(o => o.value === prevTalle)) selTalle.value = prevTalle;
+}
+
+function setRepStockFilter(val, btn) {
+  _repStockFilter = val;
+  document.querySelectorAll('#rep-stock-toggle .view-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderPreviewInformeStock();
+}
+
+// Junta producto+talle (buildStockMap) con los filtros elegidos. Los filtros se
+// combinan entre sí (proveedor Y talle Y palabra clave), no uno a la vez.
+function obtenerFilasInformeStock() {
+  const map = buildStockMap();
+  const proveedor = document.getElementById('rep-proveedor').value;
+  const talle = document.getElementById('rep-talle').value;
+  const kw = (document.getElementById('rep-keyword').value || '').toLowerCase().trim();
+
+  let filas = Object.values(map);
+  if (_repStockFilter !== 'todo') filas = filas.filter(r => r.disponible > 0);
+  if (proveedor) filas = filas.filter(r => r.proveedor === proveedor);
+  if (talle) filas = filas.filter(r => r.talle === talle);
+  if (kw) filas = filas.filter(r => r.producto.toLowerCase().includes(kw));
+
+  filas.sort((a, b) =>
+    a.producto.localeCompare(b.producto, 'es', { sensitivity: 'base' }) ||
+    a.talle.localeCompare(b.talle, 'es', { sensitivity: 'base' })
+  );
+  return filas;
+}
+
+function renderPreviewInformeStock() {
+  const filas = obtenerFilasInformeStock();
+  const body = document.getElementById('rep-preview-body');
+  const count = document.getElementById('rep-preview-count');
+  if (!body) return;
+
+  if (filas.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="empty" style="padding:16px;">Sin productos que coincidan con esos filtros.</td></tr>';
+  } else {
+    body.innerHTML = filas.map(r => `
+      <tr>
+        <td>${r.producto}</td>
+        <td>${r.talle}</td>
+        <td>${Math.max(0, r.disponible)}</td>
+        <td>${fmtMoney(r.costoUnit)}</td>
+        <td>${r.proveedor || '—'}</td>
+      </tr>
+    `).join('');
+  }
+  if (count) {
+    const totalInvertido = filas.reduce((s, r) => s + Math.max(0, r.disponible) * (r.costoUnit || 0), 0);
+    count.textContent = `${filas.length} línea${filas.length !== 1 ? 's' : ''} · ${fmtMoney(totalInvertido)} invertidos`;
+  }
+}
+
+// Arma una página aparte, limpia y en blanco y negro (no el tema oscuro de la app),
+// y dispara el diálogo de impresión del navegador — desde ahí se puede imprimir
+// en papel o elegir "Guardar como PDF".
+function generarInformeStockPDF() {
+  const filas = obtenerFilasInformeStock();
+  if (filas.length === 0) { alert('No hay productos que coincidan con esos filtros.'); return; }
+
+  const proveedor = document.getElementById('rep-proveedor').value;
+  const talle = document.getElementById('rep-talle').value;
+  const kw = document.getElementById('rep-keyword').value.trim();
+  const filtrosAplicados = [];
+  if (proveedor) filtrosAplicados.push('Proveedor: ' + proveedor);
+  if (talle) filtrosAplicados.push('Talle: ' + talle);
+  if (kw) filtrosAplicados.push('Búsqueda: "' + kw + '"');
+  filtrosAplicados.push(_repStockFilter === 'todo' ? 'Incluye agotados' : 'Solo con stock disponible');
+
+  const totalCantidad = filas.reduce((s, r) => s + Math.max(0, r.disponible), 0);
+  const totalInvertido = filas.reduce((s, r) => s + Math.max(0, r.disponible) * (r.costoUnit || 0), 0);
+  const totalIngresoPot = filas.reduce((s, r) => s + Math.max(0, r.disponible) * (r.precioVenta || 0), 0);
+  const totalGananciaPot = filas.reduce((s, r) => s + Math.max(0, r.disponible) * ((r.precioVenta || 0) - (r.costoUnit || 0)), 0);
+
+  const filasHtml = filas.map(r => {
+    const cant = Math.max(0, r.disponible);
+    const gan = cant * ((r.precioVenta || 0) - (r.costoUnit || 0));
+    return `
+      <tr>
+        <td>${r.producto}</td>
+        <td>${r.talle}</td>
+        <td class="num">${cant}</td>
+        <td class="num">${fmtMoney(r.costoUnit)}</td>
+        <td>${r.proveedor || '—'}</td>
+        <td>${fmtDate(r.fechaPrimeraCompra)}</td>
+        <td class="num">${fmtMoney(r.precioVenta || 0)}</td>
+        <td class="num">${fmtMoney(gan)}</td>
+      </tr>`;
+  }).join('');
+
+  const hoy = new Date().toLocaleDateString('es-AR');
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Informe de stock — Mal Sacado</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 24px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .sub { color: #555; font-size: 12px; margin-bottom: 4px; }
+  .filtros { color: #555; font-size: 11px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid #ccc; padding: 5px 7px; text-align: left; }
+  th { background: #eee; }
+  td.num, th.num { text-align: right; }
+  tfoot td { font-weight: bold; background: #f5f5f5; }
+  @media print {
+    @page { margin: 14mm; }
+    body { margin: 0; }
+  }
+</style>
+</head>
+<body>
+  <h1>Mal Sacado — Informe de stock</h1>
+  <div class="sub">Generado el ${hoy}</div>
+  <div class="filtros">Filtros: ${filtrosAplicados.join(' · ')}</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Producto</th><th>Talle</th><th class="num">Cantidad</th><th class="num">Costo unit.</th>
+        <th>Proveedor</th><th>Fecha de compra</th><th class="num">Precio de venta</th><th class="num">Ganancia estimada</th>
+      </tr>
+    </thead>
+    <tbody>${filasHtml}</tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2">TOTAL (${filas.length} línea${filas.length !== 1 ? 's' : ''})</td>
+        <td class="num">${totalCantidad}</td>
+        <td class="num">${fmtMoney(totalInvertido)}</td>
+        <td></td>
+        <td></td>
+        <td class="num">${fmtMoney(totalIngresoPot)}</td>
+        <td class="num">${fmtMoney(totalGananciaPot)}</td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('El navegador bloqueó la ventana nueva. Permitila para esta página y probá de nuevo.'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 350);
 }
 
 // ═══════════════════════════
