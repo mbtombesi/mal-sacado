@@ -96,34 +96,96 @@
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn:disabled:hover { background: var(--surface2); border-color: var(--border2); }
 
-  /* ── NAV TABS ── */
+  /* ── NAV TABS (dentro del panel lateral) ── */
   .nav-tabs {
     display: flex;
-    gap: 0;
-    padding: 0 32px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    overflow-x: auto;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px;
+    background: none;
+    border-bottom: none;
+    overflow-x: visible;
+    overflow-y: auto;
+    flex: 1;
   }
 
   .tab-btn {
     font-family: 'DM Sans', sans-serif;
     font-size: 13px;
     font-weight: 500;
-    padding: 14px 20px;
+    padding: 9px 12px;
     border: none;
+    border-radius: var(--radius-sm);
     background: none;
-    color: var(--text3);
+    color: var(--text2);
     cursor: pointer;
-    border-bottom: 2px solid transparent;
     transition: all .15s;
     white-space: nowrap;
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    text-decoration: none;
+    position: relative;
   }
-  .tab-btn:hover { color: var(--text2); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-btn:hover { background: var(--surface2); color: var(--text); }
+  .tab-btn.active { background: var(--surface2); color: var(--accent); }
+  .tab-btn.active::before {
+    content: '';
+    position: absolute; left: -10px; top: 6px; bottom: 6px; width: 3px;
+    border-radius: 3px; background: var(--accent);
+  }
+  .tab-btn .badge { margin-left: auto; }
+
+  /* ── PANEL LATERAL + MAIN ── */
+  .app-shell { display: flex; align-items: flex-start; min-height: 100vh; }
+
+  .sidebar {
+    width: 230px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+  }
+  .sidebar-logo { padding: 20px 18px 14px; border-bottom: 1px solid var(--border); }
+  .sidebar-logo .logo-main { font-size: 26px; letter-spacing: 1px; }
+  .sidebar-status { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .sidebar-status > div { width: fit-content; }
+
+  .sidebar-foot {
+    border-top: 1px solid var(--border);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .main { flex: 1; min-width: 0; }
+  .main-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .main-topbar h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .main-topbar h1 i { font-size: 21px; color: var(--accent); }
 
   /* ── LAYOUT ── */
   .container { padding: 28px 32px; }
@@ -140,8 +202,6 @@
     .grid-3 { grid-template-columns: 1fr 1fr; }
     .grid-2 { grid-template-columns: 1fr; }
     .container { padding: 20px 16px; }
-    .nav-tabs { padding: 0 16px; }
-    header { padding: 20px 16px; }
   }
 
   @media (max-width: 560px) {
@@ -1057,9 +1117,19 @@
   ══════════════════════════════════════ */
   @media (max-width: 640px) {
 
-    header { padding: 14px 16px 12px; flex-direction: column; align-items: stretch; gap: 10px; }
-    .logo-main { font-size: 28px; letter-spacing: 2px; }
-    .logo-sub  { display: none; }
+    /* Sidebar collapses into a stacked top strip on mobile */
+    .app-shell { flex-direction: column; min-height: 0; }
+    .sidebar {
+      width: 100%; height: auto; position: static; top: auto;
+      border-right: none; border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo { padding: 14px 16px 12px; border-bottom: none; }
+    .sidebar-logo .logo-main { font-size: 28px; letter-spacing: 2px; }
+    .sidebar-logo .logo-sub  { display: none; }
+    .sidebar-status { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+    .sidebar-foot { border-top: none; padding: 0 10px 10px; }
+
+    .main-topbar { padding: 14px 16px 12px; }
     .header-actions { gap: 8px; }
     .header-actions .btn { flex: 1; justify-content: center; font-size: 12px; padding: 9px 8px; }
     .header-actions .btn .btn-label { display: none; }
@@ -1069,17 +1139,20 @@
       position: fixed; bottom: 0; left: 0; right: 0; top: auto;
       z-index: 50; background: var(--surface);
       border-top: 1px solid var(--border); border-bottom: none;
-      padding: 0; display: flex; justify-content: space-around;
+      padding: 0; display: flex; flex-direction: row; justify-content: space-around;
+      overflow-y: visible; overflow-x: auto; flex: none; gap: 0;
       box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
     }
-    .tab-btn {
+    .nav-tabs .tab-btn {
       flex: 1; flex-direction: column; padding: 8px 4px 10px;
       font-size: 10px; gap: 3px; min-width: 0;
       border-bottom: none; border-top: 2px solid transparent;
     }
-    .tab-btn.active { border-bottom: none; border-top-color: var(--accent); color: var(--accent); background: rgba(232,255,71,0.05); }
-    .tab-btn i { font-size: 18px; }
-    .tab-btn span { display: block; }
+    .nav-tabs .tab-btn.active { border-bottom: none; border-top-color: var(--accent); color: var(--accent); background: rgba(232,255,71,0.05); }
+    .nav-tabs .tab-btn.active::before { display: none; }
+    .nav-tabs .tab-btn i { font-size: 18px; }
+    .nav-tabs .tab-btn span { display: block; }
+    .nav-tabs .tab-btn .badge { margin-left: 0; }
 
     body { padding-bottom: 80px; }
     .container { padding: 16px 14px; }
@@ -1140,8 +1213,8 @@
   @media (max-width: 380px) {
     #kpi-grid { grid-template-columns: 1fr 1fr !important; }
     .metric-value { font-size: 17px; }
-    .tab-btn { font-size: 9px; }
-    .tab-btn i { font-size: 16px; }
+    .nav-tabs .tab-btn { font-size: 9px; }
+    .nav-tabs .tab-btn i { font-size: 16px; }
     .logo-main { font-size: 24px; }
   }
 
@@ -1228,15 +1301,16 @@
 </head>
 <body>
 
-<!-- HEADER -->
-<header>
-  <div>
+<div class="app-shell">
+<!-- PANEL LATERAL -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.8 · 21/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.9 · 21/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
-    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
+    <div class="sidebar-status">
       <div id="last-updated-badge" style="
         display:inline-flex; align-items:center; gap:5px;
         font-size:10px; color:var(--text3);
@@ -1257,37 +1331,45 @@
       </div>
     </div>
   </div>
+
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="showTab('tab-stock', this)"><i class="ti ti-package"></i><span>Stock</span></button>
+    <button class="tab-btn" onclick="showTab('tab-inicio', this)"><i class="ti ti-home"></i><span>Inicio</span></button>
+    <button class="tab-btn" onclick="showTab('tab-resumen', this)"><i class="ti ti-layout-dashboard"></i><span>Resumen</span></button>
+    <button class="tab-btn" onclick="showTab('tab-proveedores', this)"><i class="ti ti-building-store"></i><span>Proveedores</span></button>
+    <button class="tab-btn" onclick="showTab('tab-pedidos', this)"><i class="ti ti-list-numbers"></i><span>Pedidos</span></button>
+    <button class="tab-btn" onclick="showTab('tab-encargues', this)"><i class="ti ti-hourglass"></i><span>Encargues</span><span class="badge orange" id="nav-encargues-badge" style="display:none;"></span></button>
+    <button class="tab-btn" onclick="showTab('tab-ventas', this)"><i class="ti ti-chart-line"></i><span>Ventas</span></button>
+    <button class="tab-btn" onclick="showTab('tab-rotacion', this)"><i class="ti ti-rotate-clockwise"></i><span>Rotación</span></button>
+    <button class="tab-btn" onclick="showTab('tab-estrategia', this)"><i class="ti ti-bulb"></i><span>Estrategia</span></button>
+    <button class="tab-btn" onclick="showTab('tab-gastos', this)"><i class="ti ti-receipt-2"></i><span>Gastos</span></button>
+    <button class="tab-btn" onclick="showTab('tab-informes', this)"><i class="ti ti-report-analytics"></i><span>Informes</span></button>
+    <button class="tab-btn" onclick="showTab('tab-historial', this)"><i class="ti ti-clock-history"></i><span>Historial</span></button>
+  </nav>
+
+  <div class="sidebar-foot">
+    <a class="tab-btn" href="https://www.arca.gob.ar/" target="_blank" rel="noopener" title="Ir a ARCA (ex AFIP) a facturar"><i class="ti ti-file-invoice"></i><span>ARCA</span></a>
+    <button class="tab-btn" onclick="openModal('modal-importexport')" title="Importar / Exportar datos"><i class="ti ti-database-import"></i><span>Importar / Exportar</span></button>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+<div class="main-topbar">
+  <h1 id="main-title"><i class="ti ti-package"></i> Stock</h1>
   <div class="header-actions">
     <button class="btn" id="btn-deshacer" onclick="deshacerCambio()" title="Deshacer el último cambio guardado" disabled><i class="ti ti-arrow-back-up"></i><span class="btn-label"> Deshacer</span></button>
-    <a class="btn" href="https://www.arca.gob.ar/" target="_blank" rel="noopener" title="Ir a ARCA (ex AFIP) a facturar"><i class="ti ti-file-invoice"></i><span class="btn-label"> ARCA</span></a>
-    <button class="btn" onclick="openModal('modal-importexport')" title="Importar / Exportar datos"><i class="ti ti-database-import"></i><span class="btn-label"> Datos</span></button>
     <button class="btn" onclick="openModal('modal-envio')" title="Registrar gasto de envío"><i class="ti ti-truck"></i><span class="btn-label"> Envío</span></button>
     <button class="btn" onclick="openModal('modal-venta')"><i class="ti ti-shopping-cart"></i><span class="btn-label"> Venta</span></button>
     <button class="btn" onclick="openModal('modal-encargue')" title="Registrar un encargue pendiente"><i class="ti ti-hourglass"></i><span class="btn-label"> Encargue</span></button>
     <button class="btn primary" onclick="openModal('modal-compra')"><i class="ti ti-plus"></i><span class="btn-label"> Compra</span></button>
   </div>
-</header>
-
-<!-- NAV TABS -->
-<nav class="nav-tabs">
-  <button class="tab-btn active" onclick="showTab('tab-inicio', this)"><i class="ti ti-home"></i><span>Inicio</span></button>
-  <button class="tab-btn" onclick="showTab('tab-resumen', this)"><i class="ti ti-layout-dashboard"></i><span>Resumen</span></button>
-  <button class="tab-btn" onclick="showTab('tab-proveedores', this)"><i class="ti ti-building-store"></i><span>Proveedores</span></button>
-  <button class="tab-btn" onclick="showTab('tab-pedidos', this)"><i class="ti ti-list-numbers"></i><span>Pedidos</span></button>
-  <button class="tab-btn" onclick="showTab('tab-stock', this)"><i class="ti ti-package"></i><span>Stock</span></button>
-  <button class="tab-btn" onclick="showTab('tab-encargues', this)"><i class="ti ti-hourglass"></i><span>Encargues</span><span class="badge orange" id="nav-encargues-badge" style="display:none; margin-left:4px;"></span></button>
-  <button class="tab-btn" onclick="showTab('tab-ventas', this)"><i class="ti ti-chart-line"></i><span>Ventas</span></button>
-  <button class="tab-btn" onclick="showTab('tab-rotacion', this)"><i class="ti ti-rotate-clockwise"></i><span>Rotación</span></button>
-  <button class="tab-btn" onclick="showTab('tab-estrategia', this)"><i class="ti ti-bulb"></i><span>Estrategia</span></button>
-  <button class="tab-btn" onclick="showTab('tab-gastos', this)"><i class="ti ti-receipt-2"></i><span>Gastos</span></button>
-  <button class="tab-btn" onclick="showTab('tab-informes', this)"><i class="ti ti-report-analytics"></i><span>Informes</span></button>
-  <button class="tab-btn" onclick="showTab('tab-historial', this)"><i class="ti ti-clock-history"></i><span>Historial</span></button>
-</nav>
+</div>
 
 <!-- ═══════════════════════════════════════
      TAB 0: INICIO
 ═══════════════════════════════════════ -->
-<div id="tab-inicio" class="section active container">
+<div id="tab-inicio" class="section container">
 
   <!-- Fila superior: stock total (compacto) + alertas tipo post-it -->
   <div class="inicio-top-row mb-6">
@@ -1593,7 +1675,7 @@
 <!-- ═══════════════════════════════════════
      TAB 3: STOCK
 ═══════════════════════════════════════ -->
-<div id="tab-stock" class="section container">
+<div id="tab-stock" class="section active container">
 
   <div class="tab-toolbar">
     <div class="tab-toolbar-left">
@@ -2717,6 +2799,9 @@
   </div>
 </div>
 
+</div><!-- /.main -->
+</div><!-- /.app-shell -->
+
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -3457,6 +3542,16 @@ function showTab(id, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   btn.classList.add('active');
+
+  const title = document.getElementById('main-title');
+  if (title) {
+    const icon = btn.querySelector('i');
+    const label = btn.querySelector('span');
+    if (icon && label) {
+      title.innerHTML = `<i class="${icon.className}"></i> ${label.textContent}`;
+    }
+  }
+
   renderAll();
 }
 
