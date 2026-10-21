@@ -1232,7 +1232,7 @@
   <div>
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.5 · 21/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.6 · 21/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
@@ -4972,6 +4972,7 @@ function generarInformeStockPDF() {
   const filasHtml = filas.map(r => {
     const cant = Math.max(0, r.disponible);
     const gan = cant * ((r.precioVenta || 0) - (r.costoUnit || 0));
+    const promoTn = (r.precioVenta || 0) > 0 ? (r.precioVenta / 0.8) : 0;
     return `
       <tr>
         <td>${r.producto}</td>
@@ -4981,6 +4982,7 @@ function generarInformeStockPDF() {
         <td>${r.proveedor || '—'}</td>
         <td>${fmtDate(r.fechaPrimeraCompra)}</td>
         <td class="num">${fmtMoney(r.precioVenta || 0)}</td>
+        <td class="num">${promoTn ? fmtMoney(promoTn) : '—'}</td>
         <td class="num">${fmtMoney(gan)}</td>
       </tr>`;
   }).join('');
@@ -5014,11 +5016,12 @@ function generarInformeStockPDF() {
   <h1>Mal Sacado — Informe de stock</h1>
   <div class="sub">Generado el ${hoy}</div>
   <div class="filtros">Filtros: ${filtrosAplicados.join(' · ')}</div>
+  <div class="filtros">"Precio promocional (Tiendanube)" es el precio a cargar en Tiendanube para que, con el 20% off por transferencia, el cliente termine pagando el precio de venta real.</div>
   <table>
     <thead>
       <tr>
         <th>Producto</th><th>Talle</th><th class="num">Cantidad</th><th class="num">Costo unit.</th>
-        <th>Proveedor</th><th>Fecha de compra</th><th class="num">Precio de venta</th><th class="num">Ganancia estimada</th>
+        <th>Proveedor</th><th>Fecha de compra</th><th class="num">Precio de venta</th><th class="num">Precio promocional (Tiendanube)</th><th class="num">Ganancia estimada</th>
       </tr>
     </thead>
     <tbody>${filasHtml}</tbody>
@@ -5030,6 +5033,7 @@ function generarInformeStockPDF() {
         <td></td>
         <td></td>
         <td class="num">${fmtMoney(totalIngresoPot)}</td>
+        <td></td>
         <td class="num">${fmtMoney(totalGananciaPot)}</td>
       </tr>
     </tfoot>
@@ -6059,7 +6063,15 @@ async function openProductoDetail(key) {
       </div>
       <div class="detail-field">
         <div class="detail-field-label">Precio venta ($)</div>
-        <input class="form-input detail-field-val" id="te-precio" type="number" value="${v.precioVenta}" oninput="syncPrecioVentaATalles()">
+        <input class="form-input detail-field-val" id="te-precio" type="number" value="${v.precioVenta}" oninput="syncPrecioVentaATalles(); actualizarPrecioTnDetalle();">
+      </div>
+      <div class="detail-field">
+        <div class="detail-field-label">Precio Tiendanube</div>
+        <div class="detail-field-val" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <i class="ti ti-tag" style="font-size:14px; color:var(--accent);"></i>
+          <span>Promocional a cargar: <strong id="te-tn-promo" style="color:var(--accent);">${(v.precioVenta||0) > 0 ? fmtMoney(v.precioVenta/0.8) : '—'}</strong></span>
+          <span style="color:var(--text3); font-size:12px;">(con el 20% off transferencia de Tiendanube queda en el precio de venta real de arriba)</span>
+        </div>
       </div>
       <div class="detail-field">
         <div class="detail-field-label">Costo unit. ($)</div>
@@ -6169,6 +6181,16 @@ async function deletePhoto(btn) {
 function syncPrecioVentaATalles() {
   const val = document.getElementById('te-precio').value;
   document.querySelectorAll('[id^="te-precio-"]').forEach(inp => { inp.value = val; });
+}
+
+// Muestra en vivo cuál sería el precio promocional de Tiendanube para el
+// precio de venta que está puesto arriba (útil para productos ya cargados,
+// no solo al comprar nuevos).
+function actualizarPrecioTnDetalle() {
+  const precioReal = parseFloat(document.getElementById('te-precio').value) || 0;
+  const el = document.getElementById('te-tn-promo');
+  if (!el) return;
+  el.textContent = precioReal > 0 ? fmtMoney(precioReal / 0.8) : '—';
 }
 
 async function guardarEdicionProducto() {
