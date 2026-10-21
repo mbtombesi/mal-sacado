@@ -1233,7 +1233,7 @@
   <div>
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.7 · 21/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.8 · 21/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
@@ -2427,9 +2427,9 @@
       </div>
       <div class="table-wrap" style="max-height:240px; overflow-y:auto;">
         <table>
-          <thead><tr><th>Producto</th><th>Talle</th><th class="num">Precio actual</th><th class="num">Precio c/desc.</th><th class="num">Ahorro</th></tr></thead>
+          <thead><tr><th>Producto</th><th>Talle</th><th class="num">Precio actual</th><th class="num">Precio c/desc.</th><th class="num">Gan. actual</th><th class="num">Gan. c/desc.</th></tr></thead>
           <tbody id="sim-preview-body">
-            <tr><td colspan="5" style="text-align:center; padding:16px; color:var(--text3);">Elegí productos y un % arriba.</td></tr>
+            <tr><td colspan="6" style="text-align:center; padding:16px; color:var(--text3);">Elegí productos y un % arriba.</td></tr>
           </tbody>
         </table>
       </div>
@@ -5209,25 +5209,31 @@ function renderSimuladorPreview() {
     );
 
   if (filas.length === 0) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--text3);">Elegí productos y un % arriba.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:16px; color:var(--text3);">Elegí productos y un % arriba.</td></tr>';
     if (count) count.textContent = '';
     return;
   }
 
+  let totalGanActual = 0, totalGanDesc = 0;
   body.innerHTML = filas.map(v => {
     const precioConDesc = v.precioVenta * (1 - pct / 100);
-    const ahorro = v.precioVenta - precioConDesc;
+    const ganActual = v.precioVenta - v.costoUnit;
+    const ganConDesc = precioConDesc - v.costoUnit;
+    totalGanActual += ganActual;
+    totalGanDesc += ganConDesc;
+    const ganColor = ganConDesc < 0 ? 'var(--red)' : ganConDesc < ganActual ? 'var(--orange)' : 'var(--green)';
     return `
       <tr>
         <td>${v.producto}</td>
         <td>${v.talle}</td>
         <td class="num">${fmtMoney(v.precioVenta)}</td>
         <td class="num" style="color:var(--accent); font-weight:700;">${fmtMoney(precioConDesc)}</td>
-        <td class="num" style="color:var(--green);">${fmtMoney(ahorro)}</td>
+        <td class="num" style="color:var(--text3);">${fmtMoney(ganActual)}</td>
+        <td class="num" style="color:${ganColor}; font-weight:700;">${fmtMoney(ganConDesc)}${ganConDesc < 0 ? ' ⚠' : ''}</td>
       </tr>`;
   }).join('');
 
-  if (count) count.textContent = `${filas.length} producto${filas.length !== 1 ? 's' : ''} · ${pct}% off`;
+  if (count) count.textContent = `${filas.length} producto${filas.length !== 1 ? 's' : ''} · ${pct}% off · ganancia ${fmtMoney(totalGanActual)} → ${fmtMoney(totalGanDesc)}`;
 }
 
 function copiarListaDescuento() {
