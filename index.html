@@ -234,6 +234,7 @@
   }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: rgba(255,255,255,0.02); }
+  td.num, th.num { text-align: right; }
 
   /* ── BADGE ── */
   .badge {
@@ -1232,7 +1233,7 @@
   <div>
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.6 · 21/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.7 · 21/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
@@ -1610,6 +1611,7 @@
     <div class="tab-toolbar-right">
       <button class="btn primary sm" onclick="openModal('modal-stock-rapido')" title="Agregar un producto directo al stock"><i class="ti ti-plus"></i> Agregar producto</button>
       <button class="btn sm" onclick="abrirInformeStock()" title="Armar una planilla filtrable de tu stock, lista para imprimir o guardar como PDF"><i class="ti ti-file-type-pdf"></i> Informe PDF</button>
+      <button class="btn sm" onclick="abrirSimuladorDescuento()" title="Simular precios con descuento para mandar cupones"><i class="ti ti-discount-2"></i> Simulador desc.</button>
       <div class="view-controls" id="stock-view-controls">
         <button class="view-btn active" onclick="setView('stock','lista',this)" title="Vista lista"><i class="ti ti-list"></i></button>
         <button class="view-btn" onclick="setView('stock','media',this)" title="Vista mediana"><i class="ti ti-layout-grid"></i></button>
@@ -1619,7 +1621,27 @@
   </div>
 
   <div id="stock-grid-wrap" class="view-lista">
-    <div class="grid-dyn" id="stock-grid">
+    <div class="card" id="stock-table-wrap">
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Talle</th>
+              <th class="num">Stock</th>
+              <th class="num">Costo</th>
+              <th class="num">Precio venta</th>
+              <th class="num">Tiendanube</th>
+              <th class="num">Gan. estimada</th>
+            </tr>
+          </thead>
+          <tbody id="stock-tbody">
+            <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text3);">Sin productos en stock.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="grid-dyn" id="stock-grid" style="display:none;">
       <div class="empty" style="grid-column:1/-1"><i class="ti ti-package"></i>Sin productos en stock.</div>
     </div>
   </div>
@@ -2359,6 +2381,63 @@
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-informe-stock')">Cerrar</button>
       <button class="btn primary" onclick="generarInformeStockPDF()"><i class="ti ti-printer"></i> Generar PDF / Imprimir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     MODAL: SIMULADOR DE DESCUENTOS
+═══════════════════════════════════════ -->
+<div class="overlay" id="modal-simulador-descuento">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-title">
+      Simulador de descuentos
+      <button class="modal-close" onclick="closeModal('modal-simulador-descuento')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="hint" style="margin-bottom:16px;">Elegí uno o varios productos y un porcentaje, y mirá cómo quedaría el precio — útil antes de mandar un cupón o armar una promo.</div>
+
+    <div class="form-row">
+      <label class="form-label">Buscar producto</label>
+      <input type="text" class="form-input" id="sim-search" placeholder="Ej: Boca, River, Messi..." oninput="renderSimuladorLista()">
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+      <span class="card-title" style="font-size:12px;">PRODUCTOS EN STOCK</span>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn sm" onclick="simSeleccionarTodosVisibles()">Seleccionar visibles</button>
+        <button type="button" class="btn sm" onclick="simLimpiarSeleccion()">Limpiar selección</button>
+      </div>
+    </div>
+    <div class="table-wrap" style="max-height:220px; overflow-y:auto; margin-bottom:16px;">
+      <table>
+        <thead><tr><th style="width:28px;"></th><th>Producto</th><th>Talle</th><th class="num">Precio venta</th></tr></thead>
+        <tbody id="sim-lista-body"></tbody>
+      </table>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">Descuento (%)</label>
+      <input type="number" class="form-input" id="sim-descuento" min="0" max="100" placeholder="Ej: 20" oninput="renderSimuladorPreview()">
+    </div>
+
+    <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+        <span class="card-title" style="font-size:12px;">PRECIO CON DESCUENTO</span>
+        <span class="hint" id="sim-preview-count" style="margin:0;"></span>
+      </div>
+      <div class="table-wrap" style="max-height:240px; overflow-y:auto;">
+        <table>
+          <thead><tr><th>Producto</th><th>Talle</th><th class="num">Precio actual</th><th class="num">Precio c/desc.</th><th class="num">Ahorro</th></tr></thead>
+          <tbody id="sim-preview-body">
+            <tr><td colspan="5" style="text-align:center; padding:16px; color:var(--text3);">Elegí productos y un % arriba.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-simulador-descuento')">Cerrar</button>
+      <button class="btn primary" onclick="copiarListaDescuento()"><i class="ti ti-copy"></i> Copiar lista</button>
     </div>
   </div>
 </div>
@@ -5050,6 +5129,135 @@ function generarInformeStockPDF() {
 }
 
 // ═══════════════════════════
+// SIMULADOR DE DESCUENTOS
+// ═══════════════════════════
+let _simSeleccion = new Set();
+
+function abrirSimuladorDescuento() {
+  _simSeleccion = new Set();
+  document.getElementById('sim-search').value = '';
+  document.getElementById('sim-descuento').value = '';
+  renderSimuladorLista();
+  renderSimuladorPreview();
+  openModal('modal-simulador-descuento');
+}
+
+function renderSimuladorLista() {
+  const map = buildStockMap();
+  const search = (document.getElementById('sim-search').value || '').toLowerCase().trim();
+  const body = document.getElementById('sim-lista-body');
+
+  let items = Object.values(map).filter(v => Math.max(0, v.disponible) > 0);
+  if (search) items = items.filter(v => v.producto.toLowerCase().includes(search) || v.talle.toLowerCase().includes(search));
+  items.sort((a, b) =>
+    a.producto.localeCompare(b.producto, 'es', { sensitivity: 'base' }) ||
+    a.talle.localeCompare(b.talle, 'es', { sensitivity: 'base' })
+  );
+
+  if (items.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--text3);">Sin productos que coincidan.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = items.map(v => {
+    const key = v.producto + '__' + v.talle;
+    const keyEsc = key.replace(/'/g, "\\'");
+    const checked = _simSeleccion.has(key) ? 'checked' : '';
+    return `
+      <tr style="cursor:pointer;" onclick="toggleSimSeleccion('${keyEsc}')">
+        <td><input type="checkbox" ${checked} onclick="event.stopPropagation(); toggleSimSeleccion('${keyEsc}')"></td>
+        <td>${v.producto}</td>
+        <td>${v.talle}</td>
+        <td class="num">${fmtMoney(v.precioVenta)}</td>
+      </tr>`;
+  }).join('');
+}
+
+function toggleSimSeleccion(key) {
+  if (_simSeleccion.has(key)) _simSeleccion.delete(key);
+  else _simSeleccion.add(key);
+  renderSimuladorLista();
+  renderSimuladorPreview();
+}
+
+function simSeleccionarTodosVisibles() {
+  const map = buildStockMap();
+  const search = (document.getElementById('sim-search').value || '').toLowerCase().trim();
+  let items = Object.values(map).filter(v => Math.max(0, v.disponible) > 0);
+  if (search) items = items.filter(v => v.producto.toLowerCase().includes(search) || v.talle.toLowerCase().includes(search));
+  items.forEach(v => _simSeleccion.add(v.producto + '__' + v.talle));
+  renderSimuladorLista();
+  renderSimuladorPreview();
+}
+
+function simLimpiarSeleccion() {
+  _simSeleccion.clear();
+  renderSimuladorLista();
+  renderSimuladorPreview();
+}
+
+function renderSimuladorPreview() {
+  const map = buildStockMap();
+  const pct = parseFloat(document.getElementById('sim-descuento').value) || 0;
+  const body = document.getElementById('sim-preview-body');
+  const count = document.getElementById('sim-preview-count');
+
+  const filas = [..._simSeleccion].map(k => map[k]).filter(Boolean)
+    .sort((a, b) =>
+      a.producto.localeCompare(b.producto, 'es', { sensitivity: 'base' }) ||
+      a.talle.localeCompare(b.talle, 'es', { sensitivity: 'base' })
+    );
+
+  if (filas.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:16px; color:var(--text3);">Elegí productos y un % arriba.</td></tr>';
+    if (count) count.textContent = '';
+    return;
+  }
+
+  body.innerHTML = filas.map(v => {
+    const precioConDesc = v.precioVenta * (1 - pct / 100);
+    const ahorro = v.precioVenta - precioConDesc;
+    return `
+      <tr>
+        <td>${v.producto}</td>
+        <td>${v.talle}</td>
+        <td class="num">${fmtMoney(v.precioVenta)}</td>
+        <td class="num" style="color:var(--accent); font-weight:700;">${fmtMoney(precioConDesc)}</td>
+        <td class="num" style="color:var(--green);">${fmtMoney(ahorro)}</td>
+      </tr>`;
+  }).join('');
+
+  if (count) count.textContent = `${filas.length} producto${filas.length !== 1 ? 's' : ''} · ${pct}% off`;
+}
+
+function copiarListaDescuento() {
+  const map = buildStockMap();
+  const pct = parseFloat(document.getElementById('sim-descuento').value) || 0;
+
+  const filas = [..._simSeleccion].map(k => map[k]).filter(Boolean)
+    .sort((a, b) =>
+      a.producto.localeCompare(b.producto, 'es', { sensitivity: 'base' }) ||
+      a.talle.localeCompare(b.talle, 'es', { sensitivity: 'base' })
+    );
+
+  if (filas.length === 0) { alert('Elegí al menos un producto antes de copiar la lista.'); return; }
+
+  const lineas = filas.map(v => {
+    const precioConDesc = v.precioVenta * (1 - pct / 100);
+    return `${v.producto} (talle ${v.talle}): ${fmtMoney(v.precioVenta)} → ${fmtMoney(precioConDesc)}`;
+  });
+  const texto = `${pct}% OFF\n` + lineas.join('\n');
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto)
+      .then(() => alert('¡Lista copiada! Pegala donde quieras mandar el cupón.'))
+      .catch(() => alert('No se pudo copiar automáticamente. Lista:\n\n' + texto));
+  } else {
+    alert('No se pudo copiar automáticamente. Lista:\n\n' + texto);
+  }
+}
+
+// ═══════════════════════════
 // RENDER: STOCK
 // ═══════════════════════════
 async function renderStock() {
@@ -5058,6 +5266,8 @@ async function renderStock() {
   const filter = document.getElementById('stock-filter').value;
   const talleFilter = document.getElementById('stock-talle-filter').value;
   const grid = document.getElementById('stock-grid');
+  const tableWrap = document.getElementById('stock-table-wrap');
+  const tbody = document.getElementById('stock-tbody');
   const mode = viewState.stock;
 
   // poblar el select de talles con los talles que realmente existen en stock
@@ -5084,44 +5294,43 @@ async function renderStock() {
   });
 
   if (items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text3);">Sin productos que coincidan.</td></tr>';
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><i class="ti ti-package"></i>Sin productos que coincidan.</div>';
+    tableWrap.style.display = mode === 'lista' ? '' : 'none';
+    grid.style.display = mode === 'lista' ? 'none' : '';
     return;
   }
 
   items.sort((a,b) => b.disponible - a.disponible);
 
   if (mode === 'lista') {
-    grid.innerHTML = items.map(v => {
+    tableWrap.style.display = '';
+    grid.style.display = 'none';
+    grid.innerHTML = '';
+    const catColors = { camiseta:'accent', pantalon:'blue', campera:'orange', botines:'green', accesorio:'gray', otro:'gray' };
+    tbody.innerHTML = items.map(v => {
       const qty = Math.max(0, v.disponible);
-      const qtyClass = qty <= 2 ? 'low' : qty <= 5 ? 'med' : '';
-      const vendidos = v.totalComprado - Math.max(0, v.disponible);
-      const pctVend = v.totalComprado > 0 ? Math.round(vendidos / v.totalComprado * 100) : 0;
+      const qtyColor = qty <= 2 ? 'var(--red)' : qty <= 5 ? 'var(--orange)' : 'var(--green)';
       const ganPot = qty * (v.precioVenta - v.costoUnit);
-      const catColors = { camiseta:'accent', pantalon:'blue', campera:'orange', botines:'green', accesorio:'gray', otro:'gray' };
+      const promoTn = (v.precioVenta || 0) > 0 ? (v.precioVenta / 0.8) : 0;
       const catColor = catColors[v.categoria] || 'gray';
       return `
-        <div class="card card-dyn stock-card" data-key="${v.producto+'__'+v.talle}">
-          <div class="card-thumb-wrap" data-key="${v.producto+'__'+v.talle}" data-layout="lista">
-            <div class="card-thumb-placeholder"><i class="ti ti-shirt"></i></div>
-          </div>
-          <div class="card-main">
-            <div style="font-size:13px; font-weight:600; color:var(--text);">${v.producto}</div>
-            <div style="font-size:11px; color:var(--text3); margin-top:2px;">
-              <span class="badge ${catColor}" style="margin-right:4px;">${v.categoria}</span>
-              Talle ${v.talle} · ${v.proveedor}
-            </div>
-          </div>
-          <div class="card-side">
-            <div style="text-align:right; font-size:11px; color:var(--text3);">
-              <div style="color:var(--text2);">${fmtMoney(v.costoUnit)} costo</div>
-              <div style="color:var(--green);">${fmtMoney(Math.max(0,ganPot))} gan. pot.</div>
-              <div>${vendidos}/${v.totalComprado} vend.</div>
-            </div>
-            <div class="stock-qty ${qtyClass}" style="font-size:22px;">${qty}</div>
-          </div>
-        </div>`;
+        <tr class="stock-row" data-key="${v.producto+'__'+v.talle}" style="cursor:pointer;">
+          <td class="font-bold"><span class="badge ${catColor}" style="margin-right:6px;">${v.categoria}</span>${v.producto}</td>
+          <td>${v.talle}</td>
+          <td class="num" style="font-weight:700; color:${qtyColor};">${qty}</td>
+          <td class="num">${fmtMoney(v.costoUnit)}</td>
+          <td class="num">${fmtMoney(v.precioVenta)}</td>
+          <td class="num">${promoTn ? fmtMoney(promoTn) : '—'}</td>
+          <td class="num" style="color:var(--green);">${fmtMoney(Math.max(0,ganPot))}</td>
+        </tr>`;
     }).join('');
+    document.getElementById('stock-tbody').querySelectorAll('.stock-row').forEach(el => {
+      el.addEventListener('click', () => openProductoDetail(el.dataset.key));
+    });
   } else {
+    tableWrap.style.display = 'none';
+    grid.style.display = '';
     grid.innerHTML = items.map(v => {
       const qty = Math.max(0, v.disponible);
       const qtyClass = qty <= 2 ? 'low' : qty <= 5 ? 'med' : '';
@@ -5159,23 +5368,25 @@ async function renderStock() {
     }).join('');
   }
 
-  // Event delegation: click on any stock card opens detail
-  document.getElementById('stock-grid').querySelectorAll('.stock-card').forEach(el => {
-    el.addEventListener('click', () => openProductoDetail(el.dataset.key));
-  });
+  if (mode !== 'lista') {
+    // Event delegation: click on any stock card opens detail
+    document.getElementById('stock-grid').querySelectorAll('.stock-card').forEach(el => {
+      el.addEventListener('click', () => openProductoDetail(el.dataset.key));
+    });
 
-  // Inyectar fotos de forma asíncrona en cada card
-  const wraps = document.getElementById('stock-grid').querySelectorAll('.card-thumb-wrap');
-  for (const wrap of wraps) {
-    const key = wrap.dataset.key;
-    const layout = wrap.dataset.layout;
-    const photos = await getPhotos(key);
-    if (photos[0]) {
-      if (layout === 'lista') {
-        wrap.innerHTML = '<img class="card-thumb" src="' + photos[0] + '" alt="">';
-      } else {
-        const h = wrap.dataset.h || '110';
-        wrap.innerHTML = '<img src="' + photos[0] + '" style="width:100%;height:' + h + 'px;object-fit:cover;border-radius:8px;" alt="">';
+    // Inyectar fotos de forma asíncrona en cada card
+    const wraps = document.getElementById('stock-grid').querySelectorAll('.card-thumb-wrap');
+    for (const wrap of wraps) {
+      const key = wrap.dataset.key;
+      const layout = wrap.dataset.layout;
+      const photos = await getPhotos(key);
+      if (photos[0]) {
+        if (layout === 'lista') {
+          wrap.innerHTML = '<img class="card-thumb" src="' + photos[0] + '" alt="">';
+        } else {
+          const h = wrap.dataset.h || '110';
+          wrap.innerHTML = '<img src="' + photos[0] + '" style="width:100%;height:' + h + 'px;object-fit:cover;border-radius:8px;" alt="">';
+        }
       }
     }
   }
