@@ -6410,11 +6410,19 @@ let _fotosSubiendoAhora = new Set(); // evita eco: no reaplicar localmente lo qu
 
 function subirFotosANube(key, arr) {
   if (!fbDb) return;
+  const pesoAprox = arr.reduce((s, f) => s + (f ? f.length : 0), 0);
+  if (pesoAprox > 950000) {
+    alert('Estas fotos pesan demasiado juntas para sincronizarse a la nube (quedaron guardadas acá en el dispositivo, pero el catálogo online no las va a ver). Borrá alguna foto de este talle o subí menos fotos juntas.');
+    return;
+  }
   _fotosSubiendoAhora.add(key);
   fbDb.collection('malsacado_photos').doc(key).set({
     data: arr,
     actualizado: new Date().toISOString()
-  }).catch(err => console.error('Error al subir fotos:', err))
+  }).catch(err => {
+    console.error('Error al subir fotos:', err);
+    alert('No se pudieron sincronizar las fotos a la nube (quedaron guardadas acá en el dispositivo). Detalle: ' + err.message);
+  })
     .finally(() => setTimeout(() => _fotosSubiendoAhora.delete(key), 1500));
 }
 
@@ -6613,35 +6621,68 @@ function triggerPhotoUpload() {
   document.getElementById('photo-file-input').click();
 }
 
+// Reduce tamaño/resolución antes de guardar, así entran varias fotos por talle
+// sin pasarse del límite de 1MB por documento que tiene cada doc de Firestore.
+function comprimirImagen(file, maxDim, calidad) {
+  maxDim = maxDim || 1280;
+  calidad = calidad || 0.72;
+  return new Promise((resolve, reject) => {
+    const procesar = (bitmap, width, height) => {
+      let w = width, h = height;
+      if (w > maxDim || h > maxDim) {
+        if (w >= h) { h = Math.round(h * maxDim / w); w = maxDim; }
+        else { w = Math.round(w * maxDim / h); h = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', calidad));
+    };
+    if (window.createImageBitmap) {
+      createImageBitmap(file, { imageOrientation: 'from-image' })
+        .then(bitmap => procesar(bitmap, bitmap.width, bitmap.height))
+        .catch(() => createImageBitmap(file).then(bitmap => procesar(bitmap, bitmap.width, bitmap.height)).catch(reject));
+    } else {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => procesar(img, img.width, img.height);
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
 async function handlePhotoUpload(input) {
   const files = Array.from(input.files);
   if (!files.length) return;
   const photos = await getPhotos(_editKey);
-  let loaded = 0;
 
-  files.forEach(file => {
-    const reader = new FileReader();
-    reader.onload = async e => {
-      photos.push(e.target.result);
-      loaded++;
-      if (loaded === files.length) {
-        await savePhotos(_editKey, photos);
-        // refresh photo area
-        const mainPhotoArea = document.querySelector('.prod-photo-area');
-        const placeholder = document.querySelector('.prod-photo-placeholder');
-        let imgEl = mainPhotoArea.querySelector('img');
-        if (!imgEl) {
-          imgEl = document.createElement('img');
-          mainPhotoArea.appendChild(imgEl);
-        }
-        imgEl.src = photos[0];
-        if (placeholder) placeholder.style.display = 'none';
-        document.getElementById('mprod-thumbs').innerHTML = buildThumbs(photos, _editKey);
-        renderStock();
-      }
-    };
-    reader.readAsDataURL(file);
-  });
+  let nuevas;
+  try {
+    nuevas = await Promise.all(files.map(f => comprimirImagen(f)));
+  } catch (e) {
+    alert('No se pudieron procesar una o más fotos: ' + e.message);
+    input.value = '';
+    return;
+  }
+  photos.push(...nuevas);
+  await savePhotos(_editKey, photos);
+  // refresh photo area
+  const mainPhotoArea = document.querySelector('.prod-photo-area');
+  const placeholder = document.querySelector('.prod-photo-placeholder');
+  let imgEl = mainPhotoArea.querySelector('img');
+  if (!imgEl) {
+    imgEl = document.createElement('img');
+    mainPhotoArea.appendChild(imgEl);
+  }
+  imgEl.src = photos[0];
+  if (placeholder) placeholder.style.display = 'none';
+  document.getElementById('mprod-thumbs').innerHTML = buildThumbs(photos, _editKey);
+  renderStock();
   input.value = '';
 }
 
