@@ -1334,7 +1334,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.13 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.14 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -2930,7 +2930,7 @@ function initSync() {
         document.getElementById('sync-login-row').style.display = 'none';
         fbDb = firebase.firestore();
         escucharCambiosRemotos();
-        escucharFotosRemotas();
+        migrarFotosLegacy().finally(() => escucharFotosRemotas());
         escucharPendingChanges();
       } else {
         fbDb = null;
@@ -6397,54 +6397,73 @@ async function savePhotos(key, arr) {
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
-  subirFotosANube(key, arr);
 }
 
 // ═══════════════════════════
 // SINCRONIZACIÓN DE FOTOS CON EL CATÁLOGO (bahía kits)
-// Las fotos se guardan en Firestore con la misma clave producto__talle,
-// así el catálogo (y este mismo panel desde otro dispositivo) las puede leer/escribir.
+// Cada foto es su propio documento en malsacado_photos_items (en vez de guardar
+// todas las fotos de un talle juntas en un solo documento) — así no hay límite de
+// cuántas fotos entran juntas, solo que cada una sola pese menos de 1MB (ya se
+// encarga la compresión de eso).
 // ═══════════════════════════
 let _fotosUnsub = null;
-let _fotosSubiendoAhora = new Set(); // evita eco: no reaplicar localmente lo que acabamos de subir nosotros
+let _cloudPhotoItems = {}; // key -> [{id, src, orden}], se reconstruye en cada snapshot
 
-function subirFotosANube(key, arr) {
+function subirFotosNuevasANube(key, nuevas) {
   if (!fbDb) {
     alert('Estas fotos quedaron guardadas en este dispositivo, pero no se subieron a la nube porque no estás conectada (iniciá sesión en Importar/Exportar → Nube y volvé a intentarlo).');
     return;
   }
-  const pesoAprox = arr.reduce((s, f) => s + (f ? f.length : 0), 0);
-  if (pesoAprox > 950000) {
-    alert('Estas fotos pesan demasiado juntas para sincronizarse a la nube (quedaron guardadas acá en el dispositivo, pero el catálogo online no las va a ver). Borrá alguna foto de este talle o subí menos fotos juntas.');
-    return;
-  }
-  _fotosSubiendoAhora.add(key);
-  fbDb.collection('malsacado_photos').doc(key).set({
-    data: arr,
-    actualizado: new Date().toISOString()
-  }).catch(err => {
+  const validas = nuevas.filter(s => s && s.length <= 900000);
+  const descartadas = nuevas.length - validas.length;
+  if (descartadas) alert('Una o más fotos pesan demasiado incluso comprimidas y no se subieron. Probá con otra foto.');
+  if (!validas.length) return;
+  const batch = fbDb.batch();
+  const base = Date.now();
+  validas.forEach((src, i) => {
+    const ref = fbDb.collection('malsacado_photos_items').doc();
+    batch.set(ref, { key, src, orden: base + i, creado: new Date().toISOString() });
+  });
+  batch.commit().catch(err => {
     console.error('Error al subir fotos:', err);
     alert('No se pudieron sincronizar las fotos a la nube (quedaron guardadas acá en el dispositivo). Detalle: ' + err.message);
-  })
-    .finally(() => setTimeout(() => _fotosSubiendoAhora.delete(key), 1500));
+  });
+}
+
+function eliminarFotoDeNube(key, src) {
+  if (!fbDb) return;
+  const items = _cloudPhotoItems[key] || [];
+  const match = items.find(it => it.src === src);
+  if (!match) return; // nunca se había sincronizado, no hay nada que borrar en la nube
+  fbDb.collection('malsacado_photos_items').doc(match.id).delete()
+    .catch(err => console.error('Error al eliminar foto de la nube:', err));
 }
 
 function escucharFotosRemotas() {
   if (!fbDb) return;
   if (_fotosUnsub) _fotosUnsub();
-  _fotosUnsub = fbDb.collection('malsacado_photos').onSnapshot(snap => {
-    snap.docChanges().forEach(async change => {
-      const key = change.doc.id;
-      if (_fotosSubiendoAhora.has(key)) return; // fue nuestro propio cambio, ya lo tenemos local
-      const remoto = change.type === 'removed' ? [] : ((change.doc.data() || {}).data || []);
-      const db = await openPhotoDB();
+  _fotosUnsub = fbDb.collection('malsacado_photos_items').onSnapshot(async snap => {
+    const porKey = {};
+    snap.forEach(doc => {
+      const d = doc.data();
+      if (!d || !d.key) return;
+      (porKey[d.key] = porKey[d.key] || []).push({ id: doc.id, src: d.src, orden: d.orden || 0 });
+    });
+    Object.keys(porKey).forEach(k => porKey[k].sort((a, b) => a.orden - b.orden));
+    // Si una key tenía fotos antes y ahora no aparece, es que se borraron todas.
+    Object.keys(_cloudPhotoItems).forEach(k => { if (!porKey[k]) porKey[k] = []; });
+    _cloudPhotoItems = porKey;
+
+    const db = await openPhotoDB();
+    for (const key of Object.keys(porKey)) {
+      const remoto = porKey[key].map(it => it.src);
       await new Promise((resolve, reject) => {
         const tx = db.transaction('photos', 'readwrite');
         tx.objectStore('photos').put({ id: 'photo_' + key, data: remoto });
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
       });
-      // si el producto de esa foto está visible ahora mismo (modal abierto o grilla de stock), refrescar
+      // si el producto de esa foto está visible ahora mismo (modal abierto), refrescar
       if (_editKey === key) {
         const mainPhotoArea = document.querySelector('.prod-photo-area');
         const placeholder = document.querySelector('.prod-photo-placeholder');
@@ -6462,11 +6481,38 @@ function escucharFotosRemotas() {
         const thumbsEl = document.getElementById('mprod-thumbs');
         if (thumbsEl) thumbsEl.innerHTML = buildThumbs(remoto, key);
       }
-      if (document.getElementById('tab-stock') && document.getElementById('tab-stock').classList.contains('active')) {
-        renderStock();
-      }
-    });
+    }
+    if (document.getElementById('tab-stock') && document.getElementById('tab-stock').classList.contains('active')) {
+      renderStock();
+    }
   }, err => console.error('Error escuchando fotos remotas:', err));
+}
+
+// Migración única: las fotos viejas estaban todas juntas en un documento por talle
+// (colección malsacado_photos). Las pasa a documentos individuales la primera vez
+// que se conecta con la versión nueva, así no se pierden las que ya estaban subidas.
+async function migrarFotosLegacy() {
+  if (!fbDb) return;
+  try {
+    const yaHayNuevas = await fbDb.collection('malsacado_photos_items').limit(1).get();
+    if (!yaHayNuevas.empty) return; // ya se migró antes
+    const legacySnap = await fbDb.collection('malsacado_photos').get();
+    if (legacySnap.empty) return;
+    const batch = fbDb.batch();
+    let n = 0;
+    legacySnap.forEach(doc => {
+      const key = doc.id;
+      const arr = (doc.data() || {}).data || [];
+      arr.forEach((src, i) => {
+        const ref = fbDb.collection('malsacado_photos_items').doc();
+        batch.set(ref, { key, src, orden: i, creado: new Date().toISOString() });
+        n++;
+      });
+    });
+    if (n > 0) await batch.commit();
+  } catch (err) {
+    console.error('Error migrando fotos a documentos individuales:', err);
+  }
 }
 
 // ═══════════════════════════
@@ -6674,6 +6720,7 @@ async function handlePhotoUpload(input) {
   }
   photos.push(...nuevas);
   await savePhotos(_editKey, photos);
+  subirFotosNuevasANube(_editKey, nuevas);
   // refresh photo area
   const mainPhotoArea = document.querySelector('.prod-photo-area');
   const placeholder = document.querySelector('.prod-photo-placeholder');
@@ -6693,8 +6740,10 @@ async function deletePhoto(btn) {
   const key = btn.dataset.key;
   const idx = parseInt(btn.dataset.idx);
   const photos = await getPhotos(key);
+  const borrada = photos[idx];
   photos.splice(idx, 1);
   await savePhotos(key, photos);
+  if (borrada) eliminarFotoDeNube(key, borrada);
   document.getElementById('mprod-thumbs').innerHTML = buildThumbs(photos, key);
   const mainPhotoArea = document.querySelector('.prod-photo-area');
   const placeholder = document.querySelector('.prod-photo-placeholder');
@@ -6769,7 +6818,14 @@ async function guardarEdicionProducto() {
       const oldKey = originalNombre + '__' + talle;
       const newKey = nuevoNombre + '__' + talle;
       const photos = await getPhotos(oldKey);
-      if (photos.length) await savePhotos(newKey, photos);
+      if (photos.length) {
+        await savePhotos(newKey, photos);
+        subirFotosNuevasANube(newKey, photos);
+        // limpiar en la nube las fotos que habían quedado con el nombre anterior
+        (_cloudPhotoItems[oldKey] || []).forEach(it => {
+          if (fbDb) fbDb.collection('malsacado_photos_items').doc(it.id).delete().catch(() => {});
+        });
+      }
     }
   }
 
