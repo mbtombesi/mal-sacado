@@ -1352,7 +1352,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.15 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.16 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -6438,11 +6438,23 @@ function subirFotosNuevasANube(key, nuevas) {
   if (!validas.length) return;
   const batch = fbDb.batch();
   const base = Date.now();
+  const refs = [];
   validas.forEach((src, i) => {
     const ref = fbDb.collection('malsacado_photos_items').doc();
+    refs.push(ref);
     batch.set(ref, { key, src, orden: base + i, creado: new Date().toISOString() });
   });
-  batch.commit().catch(err => {
+  batch.commit().then(async () => {
+    try {
+      const checks = await Promise.all(refs.map(r => r.get({ source: 'server' })));
+      const faltantes = checks.filter(d => !d.exists).length;
+      if (faltantes > 0) {
+        alert(`${faltantes} de las fotos no quedaron guardadas en la nube (quedaron solo en este dispositivo). Revisá tu conexión y volvé a subirlas desde Importar/Exportar → Nube.`);
+      }
+    } catch (verifyErr) {
+      console.error('No se pudo confirmar la subida contra el servidor:', verifyErr);
+    }
+  }).catch(err => {
     console.error('Error al subir fotos:', err);
     alert('No se pudieron sincronizar las fotos a la nube (quedaron guardadas acá en el dispositivo). Detalle: ' + err.message);
   });
