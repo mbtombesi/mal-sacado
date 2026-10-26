@@ -1334,7 +1334,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.11 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.13 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -6409,7 +6409,10 @@ let _fotosUnsub = null;
 let _fotosSubiendoAhora = new Set(); // evita eco: no reaplicar localmente lo que acabamos de subir nosotros
 
 function subirFotosANube(key, arr) {
-  if (!fbDb) return;
+  if (!fbDb) {
+    alert('Estas fotos quedaron guardadas en este dispositivo, pero no se subieron a la nube porque no estás conectada (iniciá sesión en Importar/Exportar → Nube y volvé a intentarlo).');
+    return;
+  }
   const pesoAprox = arr.reduce((s, f) => s + (f ? f.length : 0), 0);
   if (pesoAprox > 950000) {
     alert('Estas fotos pesan demasiado juntas para sincronizarse a la nube (quedaron guardadas acá en el dispositivo, pero el catálogo online no las va a ver). Borrá alguna foto de este talle o subí menos fotos juntas.');
