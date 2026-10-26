@@ -1353,7 +1353,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.18 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.19 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -6505,7 +6505,7 @@ function subirFotosNuevasANube(key, nuevas) {
   }
   const validas = nuevas.filter(s => s && s.length <= 900000);
   const descartadas = nuevas.length - validas.length;
-  if (descartadas) alert('Una o más fotos pesan demasiado incluso comprimidas y no se subieron. Probá con otra foto.');
+  if (descartadas) alert('Una o más fotos quedaron guardadas en este dispositivo pero no se pudieron subir a la nube (son muy pesadas incluso comprimidas al máximo, suele pasar con estampados muy detallados). El catálogo online no las va a ver.');
   if (!validas.length) return;
   const batch = fbDb.batch();
   const base = Date.now();
@@ -6955,6 +6955,28 @@ function comprimirImagen(file, maxDim, calidad) {
   });
 }
 
+// Algunas fotos (estampados muy detallados, con mucho ruido/textura) no bajan de
+// peso lo suficiente con la compresión de siempre. En vez de descartarlas, se
+// prueba de nuevo con menos calidad/resolución hasta que entren, en lugar de
+// pedirle a la persona que use "otra foto" (no hay nada malo con la foto).
+async function comprimirImagenAdaptativa(file, limiteBytes) {
+  limiteBytes = limiteBytes || 900000;
+  const intentos = [
+    { maxDim: 1280, calidad: 0.72 },
+    { maxDim: 1280, calidad: 0.5 },
+    { maxDim: 1024, calidad: 0.5 },
+    { maxDim: 1024, calidad: 0.35 },
+    { maxDim: 800, calidad: 0.35 },
+    { maxDim: 640, calidad: 0.3 },
+  ];
+  let resultado = null;
+  for (const { maxDim, calidad } of intentos) {
+    resultado = await comprimirImagen(file, maxDim, calidad);
+    if (resultado.length <= limiteBytes) return resultado;
+  }
+  return resultado; // la más chica que se pudo lograr, aunque no haya entrado del todo
+}
+
 async function handlePhotoUpload(input) {
   const files = Array.from(input.files);
   if (!files.length) return;
@@ -6962,7 +6984,7 @@ async function handlePhotoUpload(input) {
 
   let nuevas;
   try {
-    nuevas = await Promise.all(files.map(f => comprimirImagen(f)));
+    nuevas = await Promise.all(files.map(f => comprimirImagenAdaptativa(f)));
   } catch (e) {
     alert('No se pudieron procesar una o más fotos: ' + e.message);
     input.value = '';
