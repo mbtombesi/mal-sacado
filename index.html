@@ -1023,6 +1023,21 @@
     transition: opacity .15s;
   }
   .prod-photo-thumb:hover .del-photo { opacity: 1; }
+  .prod-photo-thumb .dl-photo {
+    position: absolute;
+    top: 2px; left: 2px;
+    background: rgba(0,0,0,0.7);
+    border: none;
+    color: var(--text);
+    border-radius: 4px;
+    width: 18px; height: 18px;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .prod-photo-thumb:hover .dl-photo { opacity: 1; }
   .prod-photo-thumb.add-more {
     border: 2px dashed var(--border2);
     background: var(--surface2);
@@ -1319,7 +1334,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.9.1 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.11 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -2915,6 +2930,8 @@ function initSync() {
         document.getElementById('sync-login-row').style.display = 'none';
         fbDb = firebase.firestore();
         escucharCambiosRemotos();
+        escucharFotosRemotas();
+        escucharPendingChanges();
       } else {
         fbDb = null;
         document.getElementById('sync-login-row').style.display = 'block';
@@ -3001,6 +3018,91 @@ function traerDeNube() {
     console.error(err);
     alert('Error al traer los datos: ' + err.message);
   });
+}
+
+// ═══════════════════════════
+// CAMBIOS PENDIENTES DESDE EL CATÁLOGO (bahía kits)
+// Si vos cambiás un precio desde el catálogo, queda "pendiente" en Firestore
+// hasta que acá lo confirmes (o lo descartes, y se queda solo del lado del catálogo).
+// ═══════════════════════════
+let _pendingUnsub = null;
+const _pendingShown = new Set();
+
+function ensurePendingContainer() {
+  let el = document.getElementById('pending-changes-wrap');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'pending-changes-wrap';
+    el.style.cssText = 'position:fixed; top:16px; right:16px; z-index:500; display:flex; flex-direction:column; gap:10px; max-width:340px;';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function escucharPendingChanges() {
+  if (!fbDb) return;
+  if (_pendingUnsub) _pendingUnsub();
+  _pendingUnsub = fbDb.collection('malsacado_pending_changes').where('estado', '==', 'pendiente')
+    .onSnapshot(snap => {
+      snap.docChanges().forEach(change => {
+        if (change.type === 'removed') { removePendingCard(change.doc.id); return; }
+        const data = change.doc.data();
+        if (data.estado !== 'pendiente') { removePendingCard(change.doc.id); return; }
+        renderPendingCard(change.doc.id, data);
+      });
+    }, err => console.error('Error escuchando cambios pendientes:', err));
+}
+
+function renderPendingCard(id, data) {
+  if (_pendingShown.has(id)) return;
+  _pendingShown.add(id);
+  const wrap = ensurePendingContainer();
+  const card = document.createElement('div');
+  card.id = 'pending-card-' + id;
+  card.style.cssText = 'background:var(--surface2); border:1px solid var(--border2); border-radius:var(--radius-sm); padding:14px; box-shadow:0 8px 24px rgba(0,0,0,0.4); font-size:13px;';
+  card.innerHTML = `
+    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px; color:var(--orange); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
+      <i class="ti ti-bell-ringing"></i> Cambio desde el catálogo
+    </div>
+    <div style="margin-bottom:12px;">
+      <strong>${data.producto}</strong> (talle ${data.talle})<br>
+      Precio: ${fmtMoney(data.precioAnterior)} → <strong style="color:var(--accent);">${fmtMoney(data.precioNuevo)}</strong>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn primary sm" style="flex:1;" onclick="aceptarPendingChange('${id}')"><i class="ti ti-check"></i> Conservar</button>
+      <button class="btn sm" style="flex:1;" onclick="descartarPendingChange('${id}')"><i class="ti ti-x"></i> Descartar</button>
+    </div>`;
+  wrap.appendChild(card);
+}
+
+function removePendingCard(id) {
+  _pendingShown.delete(id);
+  const card = document.getElementById('pending-card-' + id);
+  if (card) card.remove();
+}
+
+function aceptarPendingChange(id) {
+  fbDb.collection('malsacado_pending_changes').doc(id).get().then(doc => {
+    if (!doc.exists) return;
+    const data = doc.data();
+    if (data.tipo === 'precio') {
+      DATA.compras.forEach(c => {
+        if (c.producto === data.producto && c.talle === data.talle) {
+          c.precioVenta = data.precioNuevo;
+        }
+      });
+      save();
+      renderAll();
+    }
+    fbDb.collection('malsacado_pending_changes').doc(id).update({ estado: 'aceptado' });
+    removePendingCard(id);
+  }).catch(err => console.error(err));
+}
+
+function descartarPendingChange(id) {
+  fbDb.collection('malsacado_pending_changes').doc(id).update({ estado: 'descartado' })
+    .then(() => removePendingCard(id))
+    .catch(err => console.error(err));
 }
 
 function conectarSync() {
@@ -6289,12 +6391,71 @@ async function getPhotos(key) {
 
 async function savePhotos(key, arr) {
   const db = await openPhotoDB();
-  return new Promise((resolve, reject) => {
+  await new Promise((resolve, reject) => {
     const tx = db.transaction('photos', 'readwrite');
     tx.objectStore('photos').put({ id: 'photo_' + key, data: arr });
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
+  subirFotosANube(key, arr);
+}
+
+// ═══════════════════════════
+// SINCRONIZACIÓN DE FOTOS CON EL CATÁLOGO (bahía kits)
+// Las fotos se guardan en Firestore con la misma clave producto__talle,
+// así el catálogo (y este mismo panel desde otro dispositivo) las puede leer/escribir.
+// ═══════════════════════════
+let _fotosUnsub = null;
+let _fotosSubiendoAhora = new Set(); // evita eco: no reaplicar localmente lo que acabamos de subir nosotros
+
+function subirFotosANube(key, arr) {
+  if (!fbDb) return;
+  _fotosSubiendoAhora.add(key);
+  fbDb.collection('malsacado_photos').doc(key).set({
+    data: arr,
+    actualizado: new Date().toISOString()
+  }).catch(err => console.error('Error al subir fotos:', err))
+    .finally(() => setTimeout(() => _fotosSubiendoAhora.delete(key), 1500));
+}
+
+function escucharFotosRemotas() {
+  if (!fbDb) return;
+  if (_fotosUnsub) _fotosUnsub();
+  _fotosUnsub = fbDb.collection('malsacado_photos').onSnapshot(snap => {
+    snap.docChanges().forEach(async change => {
+      const key = change.doc.id;
+      if (_fotosSubiendoAhora.has(key)) return; // fue nuestro propio cambio, ya lo tenemos local
+      const remoto = change.type === 'removed' ? [] : ((change.doc.data() || {}).data || []);
+      const db = await openPhotoDB();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('photos', 'readwrite');
+        tx.objectStore('photos').put({ id: 'photo_' + key, data: remoto });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      // si el producto de esa foto está visible ahora mismo (modal abierto o grilla de stock), refrescar
+      if (_editKey === key) {
+        const mainPhotoArea = document.querySelector('.prod-photo-area');
+        const placeholder = document.querySelector('.prod-photo-placeholder');
+        if (mainPhotoArea) {
+          let imgEl = mainPhotoArea.querySelector('img');
+          if (remoto.length) {
+            if (!imgEl) { imgEl = document.createElement('img'); mainPhotoArea.appendChild(imgEl); }
+            imgEl.src = remoto[0];
+            if (placeholder) placeholder.style.display = 'none';
+          } else {
+            if (imgEl) imgEl.remove();
+            if (placeholder) placeholder.style.display = '';
+          }
+        }
+        const thumbsEl = document.getElementById('mprod-thumbs');
+        if (thumbsEl) thumbsEl.innerHTML = buildThumbs(remoto, key);
+      }
+      if (document.getElementById('tab-stock') && document.getElementById('tab-stock').classList.contains('active')) {
+        renderStock();
+      }
+    });
+  }, err => console.error('Error escuchando fotos remotas:', err));
 }
 
 // ═══════════════════════════
@@ -6437,8 +6598,10 @@ async function openProductoDetail(key) {
 function buildThumbs(photos, key) {
   let out = '';
   photos.forEach(function(src, i) {
+    const nombreArchivo = (key || 'foto').replace(/[^a-zA-Z0-9_-]+/g, '_') + '_' + (i+1) + '.jpg';
     out += '<div class="prod-photo-thumb">';
     out += '<img src="' + src + '" alt="foto ' + (i+1) + '">';
+    out += '<a class="dl-photo" href="' + src + '" download="' + nombreArchivo + '" title="Descargar foto" onclick="event.stopPropagation()"><i class="ti ti-download"></i></a>';
     out += '<button class="del-photo" onclick="deletePhoto(this)" data-key="' + key + '" data-idx="' + i + '" title="Eliminar foto"><i class="ti ti-x"></i></button>';
     out += '</div>';
   });
