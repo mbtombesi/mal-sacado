@@ -1097,15 +1097,16 @@
   /* talles editor en modal detail */
   .talle-edit-row {
     display: grid;
-    grid-template-columns: 1fr 90px 90px 36px;
+    grid-template-columns: 1fr 90px 90px 116px;
     gap: 8px;
     align-items: center;
     margin-bottom: 8px;
   }
   .talle-edit-row input { margin: 0; padding: 6px 10px; font-size: 13px; }
+  .talle-edit-row .talle-row-acciones { display: flex; gap: 4px; justify-content: flex-end; }
   .talle-edit-headers {
     display: grid;
-    grid-template-columns: 1fr 90px 90px 36px;
+    grid-template-columns: 1fr 90px 90px 116px;
     gap: 8px;
     margin-bottom: 4px;
   }
@@ -1352,7 +1353,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.16 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.17 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -1754,7 +1755,7 @@
           <thead>
             <tr>
               <th>Producto</th>
-              <th>Talle</th>
+              <th>Talles</th>
               <th class="num">Stock</th>
               <th class="num">Costo</th>
               <th class="num">Precio venta</th>
@@ -2948,7 +2949,11 @@ function initSync() {
         document.getElementById('sync-login-row').style.display = 'none';
         fbDb = firebase.firestore();
         escucharCambiosRemotos();
-        migrarFotosLegacy().finally(() => escucharFotosRemotas());
+        migrarFotosLegacy()
+          .then(migrarClavesFotosANubeProducto)
+          .then(escucharFotosRemotas)
+          .then(sincronizarFotosLocalesFaltantesANube)
+          .catch(err => console.error('Error en migración/sincronización de fotos:', err));
         escucharPendingChanges();
       } else {
         fbDb = null;
@@ -3182,6 +3187,27 @@ function stockKey(compra) {
   return `${compra.producto}__${compra.talle}`;
 }
 
+// Orden canónico de talles (de menor a mayor), para que no queden ordenados
+// alfabéticamente (eso pondría "L" antes que "S", por ejemplo).
+const RANGO_TALLES = { XS:0, S:1, M:2, L:3, XL:4, XXL:5, '2XL':5, XXXL:6, '3XL':6, XXXXL:7, '4XL':7 };
+function rangoTalle(t) {
+  const norm = (t || '').toUpperCase().trim();
+  return RANGO_TALLES.hasOwnProperty(norm) ? RANGO_TALLES[norm] : 999;
+}
+function compararTalles(a, b) {
+  const ra = rangoTalle(a), rb = rangoTalle(b);
+  if (ra !== rb) return ra - rb;
+  return (a || '').localeCompare(b || '', 'es', { sensitivity: 'base' });
+}
+
+// A partir de una key "producto__talle" devuelve el nombre del producto solo
+// (se usa para las fotos, que ahora se comparten entre todos los talles de
+// un mismo producto en vez de subirse por separado para cada uno).
+function productoDeKey(key) {
+  const sep = (key || '').lastIndexOf('__');
+  return sep === -1 ? key : key.slice(0, sep);
+}
+
 // ═══════════════════════════
 // STOCK CALCULATION
 // ═══════════════════════════
@@ -3216,6 +3242,41 @@ function buildStockMap() {
     }
   });
   return map;
+}
+
+// Agrupa el mapa de stock (por producto+talle) en un renglón por producto,
+// con todos sus talles adentro ordenados de menor a mayor. Así en "Stock" no
+// aparece el mismo modelo repetido en varios renglones según el talle.
+function buildStockPorProducto() {
+  const map = buildStockMap();
+  const porProducto = {};
+  Object.values(map).forEach(v => {
+    if (!porProducto[v.producto]) {
+      porProducto[v.producto] = {
+        producto: v.producto,
+        categoria: v.categoria,
+        proveedor: v.proveedor,
+        talles: [],
+        totalComprado: 0,
+        disponible: 0,
+        fechaPrimeraCompra: v.fechaPrimeraCompra,
+      };
+    }
+    const p = porProducto[v.producto];
+    p.talles.push(v);
+    p.totalComprado += v.totalComprado;
+    p.disponible += Math.max(0, v.disponible);
+    if (v.fechaPrimeraCompra < p.fechaPrimeraCompra) p.fechaPrimeraCompra = v.fechaPrimeraCompra;
+  });
+  Object.values(porProducto).forEach(p => {
+    p.talles.sort((a, b) => compararTalles(a.talle, b.talle));
+    p.ganPot = p.talles.reduce((s, t) => s + Math.max(0, t.disponible) * (t.precioVenta - t.costoUnit), 0);
+    // Precio/costo representativos (el del primer talle) para mostrar un valor único en el renglón.
+    p.precioVenta = p.talles[0].precioVenta;
+    p.costoUnit = p.talles[0].costoUnit;
+    p.precioVariable = new Set(p.talles.map(t => t.precioVenta)).size > 1;
+  });
+  return porProducto;
 }
 
 // ═══════════════════════════
@@ -5496,7 +5557,7 @@ function copiarListaDescuento() {
 // RENDER: STOCK
 // ═══════════════════════════
 async function renderStock() {
-  const map = buildStockMap();
+  const porProducto = buildStockPorProducto();
   const search = document.getElementById('stock-search').value.toLowerCase().trim();
   const filter = document.getElementById('stock-filter').value;
   const talleFilter = document.getElementById('stock-talle-filter').value;
@@ -5505,10 +5566,10 @@ async function renderStock() {
   const tbody = document.getElementById('stock-tbody');
   const mode = viewState.stock;
 
-  // poblar el select de talles con los talles que realmente existen en stock
+  // poblar el select de talles con los talles que realmente existen en stock (de menor a mayor)
   const talleSelect = document.getElementById('stock-talle-filter');
-  const tallesDisponibles = [...new Set(Object.values(map).map(v => v.talle).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  const tallesDisponibles = [...new Set(Object.values(porProducto).flatMap(p => p.talles.map(t => t.talle)).filter(Boolean))]
+    .sort(compararTalles);
   const prevTalle = talleSelect.value;
   talleSelect.innerHTML = '<option value="todos">Todos los talles</option>' +
     tallesDisponibles.map(t => `<option value="${t}">${t}</option>`).join('');
@@ -5516,10 +5577,10 @@ async function renderStock() {
     talleSelect.value = prevTalle;
   }
 
-  let items = Object.values(map).filter(v => {
-    const matchSearch = !search || v.producto.toLowerCase().includes(search) || v.proveedor.toLowerCase().includes(search) || v.talle.toLowerCase().includes(search);
-    const matchTalle = talleFilter === 'todos' || v.talle === talleFilter;
-    const qty = Math.max(0, v.disponible);
+  let items = Object.values(porProducto).filter(p => {
+    const matchSearch = !search || p.producto.toLowerCase().includes(search) || p.proveedor.toLowerCase().includes(search) || p.talles.some(t => t.talle.toLowerCase().includes(search));
+    const matchTalle = talleFilter === 'todos' || p.talles.some(t => t.talle === talleFilter);
+    const qty = p.disponible;
     const matchFilter =
       filter === 'todos' ? true :
       filter === 'bajo' ? qty <= 2 && qty > 0 :
@@ -5538,26 +5599,35 @@ async function renderStock() {
 
   items.sort((a,b) => b.disponible - a.disponible);
 
+  // chip por talle, coloreado según su propio nivel de stock: "XL (0)" "XXL (1)" ...
+  function chipsTalles(p) {
+    return p.talles.map(t => {
+      const q = Math.max(0, t.disponible);
+      const color = q <= 0 ? 'red' : q <= 2 ? 'orange' : 'gray';
+      return `<span class="badge ${color}" title="${t.talle}: ${q} disponible(s)">${t.talle} (${q})</span>`;
+    }).join(' ');
+  }
+
   if (mode === 'lista') {
     tableWrap.style.display = '';
     grid.style.display = 'none';
     grid.innerHTML = '';
     const catColors = { camiseta:'accent', pantalon:'blue', campera:'orange', botines:'green', accesorio:'gray', otro:'gray' };
-    tbody.innerHTML = items.map(v => {
-      const qty = Math.max(0, v.disponible);
+    tbody.innerHTML = items.map(p => {
+      const qty = p.disponible;
       const qtyColor = qty <= 2 ? 'var(--red)' : qty <= 5 ? 'var(--orange)' : 'var(--green)';
-      const ganPot = qty * (v.precioVenta - v.costoUnit);
-      const promoTn = (v.precioVenta || 0) > 0 ? (v.precioVenta / 0.8) : 0;
-      const catColor = catColors[v.categoria] || 'gray';
+      const promoTn = (p.precioVenta || 0) > 0 ? (p.precioVenta / 0.8) : 0;
+      const catColor = catColors[p.categoria] || 'gray';
+      const repKey = p.producto + '__' + p.talles[0].talle;
       return `
-        <tr class="stock-row" data-key="${v.producto+'__'+v.talle}" style="cursor:pointer;">
-          <td class="font-bold"><span class="badge ${catColor}" style="margin-right:6px;">${v.categoria}</span>${v.producto}</td>
-          <td>${v.talle}</td>
+        <tr class="stock-row" data-key="${repKey}" style="cursor:pointer;">
+          <td class="font-bold"><span class="badge ${catColor}" style="margin-right:6px;">${p.categoria}</span>${p.producto}</td>
+          <td style="display:flex; flex-wrap:wrap; gap:4px;">${chipsTalles(p)}</td>
           <td class="num" style="font-weight:700; color:${qtyColor};">${qty}</td>
-          <td class="num">${fmtMoney(v.costoUnit)}</td>
-          <td class="num">${fmtMoney(v.precioVenta)}</td>
+          <td class="num">${p.precioVariable ? 'desde ' : ''}${fmtMoney(p.costoUnit)}</td>
+          <td class="num">${p.precioVariable ? 'desde ' : ''}${fmtMoney(p.precioVenta)}</td>
           <td class="num">${promoTn ? fmtMoney(promoTn) : '—'}</td>
-          <td class="num" style="color:var(--green);">${fmtMoney(Math.max(0,ganPot))}</td>
+          <td class="num" style="color:var(--green);">${fmtMoney(Math.max(0,p.ganPot))}</td>
         </tr>`;
     }).join('');
     document.getElementById('stock-tbody').querySelectorAll('.stock-row').forEach(el => {
@@ -5566,24 +5636,24 @@ async function renderStock() {
   } else {
     tableWrap.style.display = 'none';
     grid.style.display = '';
-    grid.innerHTML = items.map(v => {
-      const qty = Math.max(0, v.disponible);
+    grid.innerHTML = items.map(p => {
+      const qty = p.disponible;
       const qtyClass = qty <= 2 ? 'low' : qty <= 5 ? 'med' : '';
-      const vendidos = v.totalComprado - Math.max(0, v.disponible);
-      const pctVend = v.totalComprado > 0 ? Math.round(vendidos / v.totalComprado * 100) : 0;
-      const ganPot = qty * (v.precioVenta - v.costoUnit);
+      const vendidos = p.totalComprado - qty;
+      const pctVend = p.totalComprado > 0 ? Math.round(vendidos / p.totalComprado * 100) : 0;
       const catColors = { camiseta:'accent', pantalon:'blue', campera:'orange', botines:'green', accesorio:'gray', otro:'gray' };
-      const catColor = catColors[v.categoria] || 'gray';
+      const catColor = catColors[p.categoria] || 'gray';
+      const repKey = p.producto + '__' + p.talles[0].talle;
       return `
-        <div class="card card-dyn stock-card" style="position:relative;" data-key="${v.producto+'__'+v.talle}">
-          <div class="card-thumb-wrap" data-key="${v.producto+'__'+v.talle}" data-layout="grid" data-h="${mode==='grande'?'160':'110'}" style="margin-bottom:12px;"></div>
+        <div class="card card-dyn stock-card" style="position:relative;" data-key="${repKey}" data-producto="${encodeURIComponent(p.producto)}">
+          <div class="card-thumb-wrap" data-producto="${encodeURIComponent(p.producto)}" data-layout="grid" data-h="${mode==='grande'?'160':'110'}" style="margin-bottom:12px;"></div>
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
             <div>
-              <div style="font-size:${mode==='grande'?'15':'13'}px; font-weight:600; color:var(--text); margin-bottom:4px;">${v.producto}</div>
-              <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                <span class="badge ${catColor}">${v.categoria}</span>
-                <span class="badge gray">Talle ${v.talle}</span>
+              <div style="font-size:${mode==='grande'?'15':'13'}px; font-weight:600; color:var(--text); margin-bottom:4px;">${p.producto}</div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+                <span class="badge ${catColor}">${p.categoria}</span>
               </div>
+              <div style="display:flex; gap:4px; flex-wrap:wrap;">${chipsTalles(p)}</div>
             </div>
             <div class="stock-qty ${qtyClass}">${qty}</div>
           </div>
@@ -5591,13 +5661,13 @@ async function renderStock() {
             <div class="progress-fill" style="width:${pctVend}%; background:var(--green);"></div>
           </div>
           <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-size:11px; color:var(--text3);">
-            <div><div style="color:var(--text2); font-size:12px;">${fmtMoney(v.costoUnit)}</div>Costo unit.</div>
-            <div><div style="color:var(--text2); font-size:12px;">${fmtMoney(v.precioVenta)}</div>Precio venta</div>
-            <div><div style="color:var(--green); font-size:12px;">${fmtMoney(Math.max(0,ganPot))}</div>Gan. potencial</div>
+            <div><div style="color:var(--text2); font-size:12px;">${p.precioVariable ? 'desde ' : ''}${fmtMoney(p.costoUnit)}</div>Costo unit.</div>
+            <div><div style="color:var(--text2); font-size:12px;">${p.precioVariable ? 'desde ' : ''}${fmtMoney(p.precioVenta)}</div>Precio venta</div>
+            <div><div style="color:var(--green); font-size:12px;">${fmtMoney(Math.max(0,p.ganPot))}</div>Gan. potencial</div>
           </div>
           ${mode==='grande' ? `<div style="margin-top:12px; font-size:11px; color:var(--text3); border-top:1px solid var(--border); padding-top:10px; display:flex; justify-content:space-between;">
-            <span>Proveedor: <strong style="color:var(--text2);">${v.proveedor}</strong></span>
-            <span>${vendidos}/${v.totalComprado} vendidos (${pctVend}%)</span>
+            <span>Proveedor: <strong style="color:var(--text2);">${p.proveedor}</strong></span>
+            <span>${vendidos}/${p.totalComprado} vendidos (${pctVend}%)</span>
           </div>` : ''}
         </div>`;
     }).join('');
@@ -5609,12 +5679,13 @@ async function renderStock() {
       el.addEventListener('click', () => openProductoDetail(el.dataset.key));
     });
 
-    // Inyectar fotos de forma asíncrona en cada card
+    // Inyectar fotos de forma asíncrona en cada card (las fotos se comparten entre
+    // todos los talles de un mismo producto, así que se buscan por producto solo)
     const wraps = document.getElementById('stock-grid').querySelectorAll('.card-thumb-wrap');
     for (const wrap of wraps) {
-      const key = wrap.dataset.key;
+      const producto = decodeURIComponent(wrap.dataset.producto);
       const layout = wrap.dataset.layout;
-      const photos = await getPhotos(key);
+      const photos = await getPhotos(producto);
       if (photos[0]) {
         if (layout === 'lista') {
           wrap.innerHTML = '<img class="card-thumb" src="' + photos[0] + '" alt="">';
@@ -6470,8 +6541,10 @@ function eliminarFotoDeNube(key, src) {
 }
 
 function escucharFotosRemotas() {
-  if (!fbDb) return;
+  if (!fbDb) return Promise.resolve();
   if (_fotosUnsub) _fotosUnsub();
+  let resolverPrimerSnapshot;
+  const primerSnapshot = new Promise(r => { resolverPrimerSnapshot = r; });
   _fotosUnsub = fbDb.collection('malsacado_photos_items').onSnapshot(async snap => {
     const porKey = {};
     snap.forEach(doc => {
@@ -6494,7 +6567,7 @@ function escucharFotosRemotas() {
         tx.onerror = () => reject(tx.error);
       });
       // si el producto de esa foto está visible ahora mismo (modal abierto), refrescar
-      if (_editKey === key) {
+      if (_editProducto === key) {
         const mainPhotoArea = document.querySelector('.prod-photo-area');
         const placeholder = document.querySelector('.prod-photo-placeholder');
         if (mainPhotoArea) {
@@ -6515,7 +6588,12 @@ function escucharFotosRemotas() {
     if (document.getElementById('tab-stock') && document.getElementById('tab-stock').classList.contains('active')) {
       renderStock();
     }
-  }, err => console.error('Error escuchando fotos remotas:', err));
+    if (resolverPrimerSnapshot) { resolverPrimerSnapshot(); resolverPrimerSnapshot = null; }
+  }, err => {
+    console.error('Error escuchando fotos remotas:', err);
+    if (resolverPrimerSnapshot) { resolverPrimerSnapshot(); resolverPrimerSnapshot = null; }
+  });
+  return primerSnapshot;
 }
 
 // Migración única: las fotos viejas estaban todas juntas en un documento por talle
@@ -6545,10 +6623,134 @@ async function migrarFotosLegacy() {
   }
 }
 
+// Migración única: las fotos se guardaban separadas por producto+talle; ahora se
+// comparten entre todos los talles de un mismo producto (se sube una vez y se ve
+// en todos). Junta en la nube, bajo una sola clave por producto, las que ya
+// estaban guardadas con la clave vieja (producto+talle), sin duplicar las que
+// sean exactamente la misma foto.
+async function migrarClavesFotosANubeProducto() {
+  if (!fbDb) return;
+  try {
+    const flagRef = fbDb.collection('malsacado_meta').doc('fotos_por_producto');
+    const flag = await flagRef.get();
+    if (flag.exists) return; // ya se migró antes
+    const snap = await fbDb.collection('malsacado_photos_items').get();
+    const porProducto = {};
+    snap.forEach(doc => {
+      const d = doc.data();
+      if (!d || !d.key) return;
+      const producto = productoDeKey(d.key);
+      (porProducto[producto] = porProducto[producto] || []).push({ id: doc.id, src: d.src, orden: d.orden || 0 });
+    });
+
+    const operaciones = [];
+    Object.keys(porProducto).forEach(producto => {
+      const items = porProducto[producto].slice().sort((a, b) => a.orden - b.orden);
+      const vistos = new Set();
+      let nuevoOrden = 0;
+      items.forEach(it => {
+        if (vistos.has(it.src)) {
+          operaciones.push({ tipo: 'delete', id: it.id }); // foto duplicada (venía de otro talle)
+        } else {
+          vistos.add(it.src);
+          operaciones.push({ tipo: 'update', id: it.id, data: { key: producto, orden: nuevoOrden++ } });
+        }
+      });
+    });
+
+    // Firestore permite hasta 500 operaciones por batch — se manda en tandas por si acaso.
+    for (let i = 0; i < operaciones.length; i += 400) {
+      const tanda = operaciones.slice(i, i + 400);
+      const batch = fbDb.batch();
+      tanda.forEach(op => {
+        const ref = fbDb.collection('malsacado_photos_items').doc(op.id);
+        if (op.tipo === 'delete') batch.delete(ref);
+        else batch.update(ref, op.data);
+      });
+      await batch.commit();
+    }
+    await flagRef.set({ hecho: true, fecha: new Date().toISOString() });
+  } catch (err) {
+    console.error('Error migrando fotos a clave por producto en la nube:', err);
+  }
+}
+
+// Consolida en el almacenamiento local (IndexedDB) las fotos que hayan quedado
+// guardadas sueltas bajo la clave vieja (producto+talle), uniéndolas en una sola
+// entrada por producto. Corre una sola vez por dispositivo, sin necesitar conexión.
+let _consolidacionFotosLocalPromise = null;
+function consolidarFotosLocalesPorProducto() {
+  if (_consolidacionFotosLocalPromise) return _consolidacionFotosLocalPromise;
+  _consolidacionFotosLocalPromise = (async () => {
+    if (localStorage.getItem('ms_fotos_producto_v1')) return;
+    try {
+      const db = await openPhotoDB();
+      const todas = await new Promise((resolve) => {
+        const tx = db.transaction('photos', 'readonly');
+        const req = tx.objectStore('photos').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      });
+      const porProducto = {};
+      const idsAEliminar = [];
+      todas.forEach(rec => {
+        const key = (rec.id || '').replace(/^photo_/, '');
+        const producto = productoDeKey(key);
+        porProducto[producto] = (porProducto[producto] || []).concat(rec.data || []);
+        if (producto !== key) idsAEliminar.push(rec.id);
+      });
+      if (Object.keys(porProducto).length) {
+        const tx = db.transaction('photos', 'readwrite');
+        const store = tx.objectStore('photos');
+        Object.keys(porProducto).forEach(producto => {
+          const vistos = new Set();
+          const fotos = porProducto[producto].filter(src => {
+            if (!src || vistos.has(src)) return false;
+            vistos.add(src);
+            return true;
+          });
+          store.put({ id: 'photo_' + producto, data: fotos });
+        });
+        idsAEliminar.forEach(id => store.delete(id));
+        await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+      }
+      localStorage.setItem('ms_fotos_producto_v1', '1');
+    } catch (err) {
+      console.error('Error consolidando fotos locales por producto:', err);
+    }
+  })();
+  return _consolidacionFotosLocalPromise;
+}
+
+// Después de conectar, revisa si hay fotos guardadas localmente que todavía no
+// estén en la nube (por ejemplo porque alguna vez falló la sincronización) y las
+// vuelve a subir. Es liviano y seguro de correr en cada inicio de sesión.
+async function sincronizarFotosLocalesFaltantesANube() {
+  if (!fbDb) return;
+  try {
+    const db = await openPhotoDB();
+    const todas = await new Promise((resolve) => {
+      const tx = db.transaction('photos', 'readonly');
+      const req = tx.objectStore('photos').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+    todas.forEach(rec => {
+      const key = (rec.id || '').replace(/^photo_/, '');
+      const yaEnNube = new Set((_cloudPhotoItems[key] || []).map(it => it.src));
+      const faltantes = (rec.data || []).filter(src => src && !yaEnNube.has(src));
+      if (faltantes.length) subirFotosNuevasANube(key, faltantes);
+    });
+  } catch (err) {
+    console.error('Error sincronizando fotos locales pendientes:', err);
+  }
+}
+
 // ═══════════════════════════
 // PRODUCT DETAIL MODAL
 // ═══════════════════════════
 let _editKey = null;
+let _editProducto = null; // nombre del producto solo, se usa para las fotos (compartidas entre talles)
 
 async function getThumbHtml(key, layout, mode) {
   const ph = await getPhotos(key);
@@ -6568,15 +6770,22 @@ async function openProductoDetail(key) {
   const map = buildStockMap();
   const v = map[key];
   if (!v) return;
+  _editProducto = v.producto;
 
-  const photos = await getPhotos(key);
+  // Las fotos se comparten entre todos los talles del mismo producto (ya no hace
+  // falta subirlas de nuevo para cada talle), así que se buscan por producto solo.
+  const photos = await getPhotos(_editProducto);
   const catColors = { camiseta:'accent', pantalon:'blue', campera:'orange', botines:'green', accesorio:'gray', otro:'gray' };
   const catColor = catColors[v.categoria] || 'gray';
-  const qty = Math.max(0, v.disponible);
-  const qtyClass = qty <= 2 ? 'color:var(--red)' : qty <= 5 ? 'color:var(--orange)' : 'color:var(--accent)';
-  const vendidos = v.totalComprado - qty;
-  const pctVend = v.totalComprado > 0 ? Math.round(vendidos / v.totalComprado * 100) : 0;
-  const ganPot = qty * (v.precioVenta - v.costoUnit);
+
+  // Totales agregados de TODOS los talles de este producto (no solo el talle
+  // sobre el que se hizo clic), para que el encabezado no muestre un solo talle.
+  const porProducto = buildStockPorProducto();
+  const agg = porProducto[v.producto] || { disponible: 0, totalComprado: 0, ganPot: 0, talles: [] };
+  const qty = agg.disponible;
+  const vendidos = agg.totalComprado - qty;
+  const pctVend = agg.totalComprado > 0 ? Math.round(vendidos / agg.totalComprado * 100) : 0;
+  const ganPot = agg.ganPot;
 
   // Photo area HTML
   const mainPhoto = photos[0] || null;
@@ -6588,12 +6797,16 @@ async function openProductoDetail(key) {
         <span>Hacer clic para agregar foto</span>
       </div>
     </div>
-    <div class="prod-photo-thumbs" id="mprod-thumbs">${buildThumbs(photos, key)}</div>
+    <div class="prod-photo-thumbs" id="mprod-thumbs">${buildThumbs(photos, _editProducto)}</div>
     <input type="file" class="prod-photo-input" id="photo-file-input" accept="image/*" multiple onchange="handlePhotoUpload(this)">
+    <div class="hint" style="margin-top:6px;">Estas fotos se ven en todos los talles de este producto — no hace falta subirlas de nuevo para cada uno.</div>
   `;
 
-  // Talles editor
-  const comprasDeEste = DATA.compras.filter(c => c.producto === v.producto);
+  // Talles editor (con acciones de reponer/vender por talle, ya que ahora un
+  // mismo producto puede tener varios talles listados acá adentro)
+  const comprasDeEste = DATA.compras.filter(c => c.producto === v.producto)
+    .slice()
+    .sort((a, b) => compararTalles(a.talle, b.talle));
   const tallesHtml = comprasDeEste.map((c, idx) => {
     const k2 = c.producto + '__' + c.talle;
     const stockItem = map[k2] || {};
@@ -6605,7 +6818,11 @@ async function openProductoDetail(key) {
         </div>
         <input type="number" class="form-input" value="${c.costoUnit}" id="te-costo-${c.id}" min="0" placeholder="Costo">
         <input type="number" class="form-input" value="${c.precioVenta}" id="te-precio-${c.id}" min="0" placeholder="Precio">
-        <button class="btn-icon" onclick="eliminarCompra(${c.id}); closeModal('modal-producto'); renderAll()" title="Eliminar este talle"><i class="ti ti-trash"></i></button>
+        <div class="talle-row-acciones">
+          <button class="btn-icon" onclick="reponerStock('${k2}')" title="Reponer stock de este talle"><i class="ti ti-refresh"></i></button>
+          <button class="btn-icon" onclick="venderDesdeStock('${k2}')" title="Registrar venta de este talle"><i class="ti ti-shopping-cart"></i></button>
+          <button class="btn-icon" onclick="eliminarCompra(${c.id}); closeModal('modal-producto'); renderAll()" title="Eliminar este talle"><i class="ti ti-trash"></i></button>
+        </div>
       </div>
     `;
   }).join('');
@@ -6615,8 +6832,7 @@ async function openProductoDetail(key) {
 
     <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px;">
       <span class="badge ${catColor}">${v.categoria}</span>
-      <span class="badge gray">Talle ${v.talle}</span>
-      <span class="badge ${qty<=2?'red':qty<=5?'orange':'green'}">${qty} en stock</span>
+      <span class="badge ${qty<=2?'red':qty<=5?'orange':'green'}">${qty} en stock (todos los talles)</span>
       <span class="badge gray">${pctVend}% vendido</span>
     </div>
 
@@ -6653,7 +6869,7 @@ async function openProductoDetail(key) {
       </div>
       <div class="detail-field">
         <div class="detail-field-label">Ganancia pot.</div>
-        <div class="detail-field-val text-green">${fmtMoney(Math.max(0,ganPot))} (${qty} unidades)</div>
+        <div class="detail-field-val text-green">${fmtMoney(Math.max(0,ganPot))} (${qty} unidades, todos los talles)</div>
       </div>
     </div>
 
@@ -6666,13 +6882,11 @@ async function openProductoDetail(key) {
         <span></span>
       </div>
       ${tallesHtml || '<p style="font-size:13px; color:var(--text3);">Sin registros.</p>'}
-      <div class="hint" style="margin-top:8px;">El precio de venta de arriba se aplica a todos los talles. Si querés un precio distinto para alguno en particular, cambialo acá.</div>
+      <div class="hint" style="margin-top:8px;">El precio de venta de arriba se aplica a todos los talles. Si querés un precio distinto para alguno en particular, cambialo acá. Para reponer stock o registrar una venta de un talle puntual, usá los botones de su fila.</div>
     </div>
 
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-producto')">Cerrar</button>
-      <button class="btn" onclick="reponerStock('${key}')" title="Precarga una compra nueva con estos mismos datos"><i class="ti ti-refresh"></i> Reponer stock</button>
-      <button class="btn" style="background:rgba(61,214,140,0.12); border-color:var(--green); color:var(--green);" onclick="venderDesdeStock('${key}')" title="Registrar la venta de esta prenda"><i class="ti ti-shopping-cart"></i> Vendida</button>
       <button class="btn primary" onclick="guardarEdicionProducto()"><i class="ti ti-device-floppy"></i> Guardar cambios</button>
     </div>
   `;
@@ -6740,7 +6954,7 @@ function comprimirImagen(file, maxDim, calidad) {
 async function handlePhotoUpload(input) {
   const files = Array.from(input.files);
   if (!files.length) return;
-  const photos = await getPhotos(_editKey);
+  const photos = await getPhotos(_editProducto);
 
   let nuevas;
   try {
@@ -6751,8 +6965,8 @@ async function handlePhotoUpload(input) {
     return;
   }
   photos.push(...nuevas);
-  await savePhotos(_editKey, photos);
-  subirFotosNuevasANube(_editKey, nuevas);
+  await savePhotos(_editProducto, photos);
+  subirFotosNuevasANube(_editProducto, nuevas);
   // refresh photo area
   const mainPhotoArea = document.querySelector('.prod-photo-area');
   const placeholder = document.querySelector('.prod-photo-placeholder');
@@ -6763,7 +6977,7 @@ async function handlePhotoUpload(input) {
   }
   imgEl.src = photos[0];
   if (placeholder) placeholder.style.display = 'none';
-  document.getElementById('mprod-thumbs').innerHTML = buildThumbs(photos, _editKey);
+  document.getElementById('mprod-thumbs').innerHTML = buildThumbs(photos, _editProducto);
   renderStock();
   input.value = '';
 }
@@ -6841,12 +7055,8 @@ async function guardarEdicionProducto() {
 
   if (!nuevoNombre) { alert('El nombre no puede estar vacío.'); return; }
 
-  // Get original producto a partir de la clave (producto__talle)
-  const separadorIdx = _editKey.lastIndexOf('__');
-  const originalNombre = _editKey.slice(0, separadorIdx);
-
-  // Todos los talles que tiene este producto (para migrar fotos más abajo).
-  const tallesDeEste = [...new Set(DATA.compras.filter(c => c.producto === originalNombre).map(c => c.talle))];
+  // Producto original (las fotos se guardan por producto solo, compartidas entre talles)
+  const originalNombre = _editProducto || productoDeKey(_editKey);
 
   DATA.compras.forEach(c => {
     if (c.producto === originalNombre) {
@@ -6869,22 +7079,25 @@ async function guardarEdicionProducto() {
     }
   });
 
-  // Also save photos under new key if name changed (para todos los talles)
+  // Si cambió el nombre, mover también las fotos (se guardan por producto, no por talle)
   if (nuevoNombre !== originalNombre) {
-    for (const talle of tallesDeEste) {
-      const oldKey = originalNombre + '__' + talle;
-      const newKey = nuevoNombre + '__' + talle;
-      const photos = await getPhotos(oldKey);
-      if (photos.length) {
-        await savePhotos(newKey, photos);
-        subirFotosNuevasANube(newKey, photos);
-        // limpiar en la nube las fotos que habían quedado con el nombre anterior
-        (_cloudPhotoItems[oldKey] || []).forEach(it => {
-          if (fbDb) fbDb.collection('malsacado_photos_items').doc(it.id).delete().catch(() => {});
-        });
-      }
+    const photos = await getPhotos(originalNombre);
+    if (photos.length) {
+      await savePhotos(nuevoNombre, photos);
+      await savePhotos(originalNombre, []);
+    }
+    // En la nube alcanza con renombrar la clave de los documentos existentes
+    // (no hace falta volver a subir las fotos de nuevo).
+    const items = _cloudPhotoItems[originalNombre] || [];
+    if (fbDb && items.length) {
+      const batch = fbDb.batch();
+      items.forEach(it => {
+        batch.update(fbDb.collection('malsacado_photos_items').doc(it.id), { key: nuevoNombre });
+      });
+      batch.commit().catch(err => console.error('Error al renombrar fotos en la nube:', err));
     }
   }
+  _editProducto = nuevoNombre;
 
   save();
   renderAll();
@@ -7016,9 +7229,11 @@ function renderAll() {
 // ═══════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
   if (migrarPedidosViejos()) { save(); }
-  renderAll();
-  actualizarBotonDeshacer();
-  initSync();
+  consolidarFotosLocalesPorProducto().finally(() => {
+    renderAll();
+    actualizarBotonDeshacer();
+    initSync();
+  });
 });
 </script>
 </body>
