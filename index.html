@@ -1353,7 +1353,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.17 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.18 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -6631,7 +6631,11 @@ async function migrarFotosLegacy() {
 async function migrarClavesFotosANubeProducto() {
   if (!fbDb) return;
   try {
-    const flagRef = fbDb.collection('malsacado_meta').doc('fotos_por_producto');
+    // Ojo: el documento de "candado" vive en la MISMA colección 'malsacado' que ya
+    // usa el resto de la app (no en una colección nueva), porque las reglas de
+    // seguridad de Firestore están escritas por nombre de colección — una
+    // colección nueva sin reglas propias queda bloqueada aunque estés conectada.
+    const flagRef = fbDb.collection('malsacado').doc('meta_fotos_producto');
     const flag = await flagRef.get();
     if (flag.exists) return; // ya se migró antes
     const snap = await fbDb.collection('malsacado_photos_items').get();
