@@ -1038,6 +1038,24 @@
     transition: opacity .15s;
   }
   .prod-photo-thumb:hover .dl-photo { opacity: 1; }
+  .prod-photo-thumb .mv-photo {
+    position: absolute;
+    bottom: 2px;
+    background: rgba(0,0,0,0.7);
+    border: none;
+    color: var(--text);
+    border-radius: 4px;
+    width: 18px; height: 18px;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .prod-photo-thumb .mv-photo.mv-left { left: 2px; }
+  .prod-photo-thumb .mv-photo.mv-right { right: 2px; }
+  .prod-photo-thumb .mv-photo:disabled { opacity: 0 !important; pointer-events: none; }
+  .prod-photo-thumb:hover .mv-photo:not(:disabled) { opacity: 1; }
   .prod-photo-thumb.add-more {
     border: 2px dashed var(--border2);
     background: var(--surface2);
@@ -1334,7 +1352,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.14 · 26/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.15 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -6660,6 +6678,8 @@ function buildThumbs(photos, key) {
     out += '<img src="' + src + '" alt="foto ' + (i+1) + '">';
     out += '<a class="dl-photo" href="' + src + '" download="' + nombreArchivo + '" title="Descargar foto" onclick="event.stopPropagation()"><i class="ti ti-download"></i></a>';
     out += '<button class="del-photo" onclick="deletePhoto(this)" data-key="' + key + '" data-idx="' + i + '" title="Eliminar foto"><i class="ti ti-x"></i></button>';
+    out += '<button class="mv-photo mv-left" onclick="event.stopPropagation(); moverFoto(\'' + key + '\', ' + i + ', -1)" title="Mover a la izquierda"' + (i===0?' disabled':'') + '><i class="ti ti-chevron-left"></i></button>';
+    out += '<button class="mv-photo mv-right" onclick="event.stopPropagation(); moverFoto(\'' + key + '\', ' + i + ', 1)" title="Mover a la derecha"' + (i===photos.length-1?' disabled':'') + '><i class="ti ti-chevron-right"></i></button>';
     out += '</div>';
   });
   out += '<div class="prod-photo-thumb add-more" onclick="triggerPhotoUpload()" title="Agregar más fotos"><i class="ti ti-plus"></i></div>';
@@ -6756,6 +6776,31 @@ async function deletePhoto(btn) {
     if (imgEl) imgEl.src = photos[0];
   }
   renderStock();
+}
+
+// Intercambia el orden de dos fotos vecinas (-1 = mover a la izquierda, +1 = a la derecha).
+async function moverFoto(key, idx, dir) {
+  const photos = await getPhotos(key);
+  const j = idx + dir;
+  if (j < 0 || j >= photos.length) return;
+  [photos[idx], photos[j]] = [photos[j], photos[idx]];
+  await savePhotos(key, photos);
+  document.getElementById('mprod-thumbs').innerHTML = buildThumbs(photos, key);
+  const mainPhotoArea = document.querySelector('.prod-photo-area');
+  let imgEl = mainPhotoArea ? mainPhotoArea.querySelector('img') : null;
+  if (imgEl) imgEl.src = photos[0];
+  renderStock();
+
+  // Reflejar el nuevo orden en la nube (si ambas fotos ya estaban sincronizadas).
+  if (!fbDb) return;
+  const items = _cloudPhotoItems[key] || [];
+  const a = items.find(it => it.src === photos[j]); // la que estaba en idx, ahora en j
+  const b = items.find(it => it.src === photos[idx]); // la que estaba en j, ahora en idx
+  if (!a || !b) return;
+  const batch = fbDb.batch();
+  batch.update(fbDb.collection('malsacado_photos_items').doc(a.id), { orden: b.orden });
+  batch.update(fbDb.collection('malsacado_photos_items').doc(b.id), { orden: a.orden });
+  batch.commit().catch(err => console.error('Error al reordenar fotos:', err));
 }
 
 // Cuando se toca el precio de venta de arriba, se refleja en todos los talles
