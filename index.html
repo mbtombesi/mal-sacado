@@ -1118,11 +1118,12 @@
   @media (max-width: 640px) {
 
     /* Sidebar collapses into a stacked top strip on mobile */
-    .app-shell { flex-direction: column; min-height: 0; }
+    .app-shell { flex-direction: column; align-items: stretch; min-height: 0; }
     .sidebar {
       width: 100%; height: auto; position: static; top: auto;
       border-right: none; border-bottom: 1px solid var(--border);
     }
+    .main { width: 100%; min-width: 0; }
     .sidebar-logo { padding: 14px 16px 12px; border-bottom: none; }
     .sidebar-logo .logo-main { font-size: 28px; letter-spacing: 2px; }
     .sidebar-logo .logo-sub  { display: none; }
@@ -1176,6 +1177,17 @@
     .form-input, .form-select { font-size: 16px; }
     .form-actions { flex-direction: column-reverse; }
     .form-actions .btn { width: 100%; justify-content: center; padding: 12px; }
+
+    /* Toolbars (search/filters + action buttons) stack full-width instead of overflowing */
+    .tab-toolbar { flex-direction: column; align-items: stretch; }
+    .tab-toolbar-left, .tab-toolbar-right { width: 100%; }
+    .tab-toolbar-left .form-input, .tab-toolbar-left .form-select,
+    .tab-toolbar-right .form-input, .tab-toolbar-right .form-select {
+      max-width: none !important;
+      width: 100%;
+    }
+    .tab-toolbar-right { flex-wrap: wrap; }
+    .tab-toolbar-right .btn { flex: 1 1 auto; }
 
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table { min-width: 520px; font-size: 12px; }
@@ -1307,7 +1319,7 @@
   <div class="sidebar-logo">
     <div class="logo">
       <span class="logo-main">Mal Sacado</span>
-      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.9 · 21/10/2026</span>
+      <span style="font-size:10px; color:var(--text3); background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:2px 9px; font-family:'DM Sans', sans-serif; letter-spacing:0.3px;">v1.9.1 · 26/10/2026</span>
     </div>
     <div class="logo-sub">Indumentaria Deportiva — Panel de Control</div>
     <div class="sidebar-status">
@@ -2648,7 +2660,7 @@
     </div>
     <div class="form-row">
       <label class="form-label">Nombre del comprador <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(opcional)</span></label>
-      <input type="text" class="form-input" id="v-comprador" placeholder="Ej: Juan Pérez">
+      <input type="text" class="form-input" id="v-comprador" placeholder="Ej: Juan Pérez" autocomplete="off">
     </div>
     <div class="form-row">
       <label class="form-label">Observación <span style="text-transform:none; letter-spacing:0; color:var(--text3);">(opcional)</span></label>
@@ -2734,16 +2746,18 @@
         <!-- LOGIN (aparece cuando este dispositivo todavía no inició sesión) -->
         <div id="sync-login-row" style="display:none; margin-bottom:16px; padding:14px; background:var(--surface2); border-radius:var(--radius-sm); border:1px solid var(--border);">
           <p style="font-size:12px; color:var(--text2); margin-bottom:10px;">Iniciá sesión en este dispositivo con el usuario que creaste en Firebase (Authentication → Users).</p>
+          <form id="sync-login-form" onsubmit="return false;" autocomplete="on">
           <div class="form-row">
             <label class="form-label">Email</label>
-            <input type="email" class="form-input" id="sync-login-email" placeholder="tu@email.com">
+            <input type="email" class="form-input" id="sync-login-email" placeholder="tu@email.com" autocomplete="username">
           </div>
           <div class="form-row">
             <label class="form-label">Contraseña</label>
-            <input type="password" class="form-input" id="sync-login-password">
+            <input type="password" class="form-input" id="sync-login-password" autocomplete="current-password">
           </div>
           <div id="sync-login-error" style="font-size:12px; color:var(--red); margin-bottom:8px;"></div>
-          <button class="btn primary sm" onclick="iniciarSesionSync()"><i class="ti ti-login"></i> Iniciar sesión</button>
+          <button type="button" class="btn primary sm" onclick="iniciarSesionSync()"><i class="ti ti-login"></i> Iniciar sesión</button>
+          </form>
         </div>
 
         <p style="font-size:12px; color:var(--text3); margin-bottom:14px;">
